@@ -34,6 +34,7 @@ struct wrange32 {
 };
 
 struct wrange32 wrange32_add(struct wrange32 a, struct wrange32 b);
+struct wrange32 wrange32_sub(struct wrange32 a, struct wrange32 b);
 
 static inline bool wrange32_uwrapping(struct wrange32 w) {
 	return w.end < w.start;
