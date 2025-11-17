@@ -1,0 +1,13 @@
+# CBMC build artifacts
+build/
+*.goto
+
+# Editor files
+*.swp
+*.swo
+*~
+.*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
