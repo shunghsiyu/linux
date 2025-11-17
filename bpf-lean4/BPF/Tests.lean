@@ -417,6 +417,105 @@ def test_range_refinement : Bool :=
   | VerifyResult.Valid => true
   | _ => false
 
+/-! ## State Merging Tests -/
+
+/-- Test: Merging TNum with itself is idempotent -/
+def test_merge_tnum_idem : Bool :=
+  let t := TNum.const 42
+  mergeTNum t t == t
+
+/-- Test: Merging two different constants produces unknown -/
+def test_merge_tnum_diff : Bool :=
+  let t1 := TNum.const 10
+  let t2 := TNum.const 20
+  let merged := mergeTNum t1 t2
+  merged.mask == UInt64.max  -- All bits unknown
+
+/-- Test: Merging register states with same type preserves type -/
+def test_merge_regstate_same_type : Bool :=
+  let r1 := RegState.scalar 10
+  let r2 := RegState.scalar 20
+  let merged := mergeRegState r1 r2
+  merged.regType == RegType.ScalarValue &&
+  merged.umin == 10 &&  -- min of both
+  merged.umax == 20     -- max of both
+
+/-- Test: Merging register states with different types produces scalar -/
+def test_merge_regstate_diff_type : Bool :=
+  let r1 := RegState.scalar 10
+  let r2 := RegState.ptrToStack 0
+  let merged := mergeRegState r1 r2
+  merged.regType == RegType.ScalarValue
+
+/-- Program with control flow merge -/
+def merge_test_program : Array Insn :=
+  #[
+    -- if R1 > 10
+    Insn.movImm Reg.R2 10,
+    Insn.jgt Reg.R1 Reg.R2 2,
+
+    -- False branch: R0 = 100
+    Insn.movImm Reg.R0 100,
+    Insn.exit,
+
+    -- True branch: R0 = 200
+    Insn.movImm Reg.R0 200,
+    Insn.exit
+  ]
+
+/-- Test: Program with merge point verifies -/
+def test_merge_program : Bool :=
+  match verifyProgram merge_test_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-! ## Map Operation Tests -/
+
+/-- Test: Sample hash map has correct properties -/
+def test_map_hash : Bool :=
+  sampleHashMap.mapType == MapType.Hash &&
+  sampleHashMap.keySize == 4 &&
+  sampleHashMap.valueSize == 8
+
+/-- Test: Sample array map has correct properties -/
+def test_map_array : Bool :=
+  sampleArrayMap.mapType == MapType.Array &&
+  sampleArrayMap.keySize == 4 &&
+  sampleArrayMap.maxEntries == 256
+
+/-- Test: Map key size validation -/
+def test_map_key_valid : Bool :=
+  sampleHashMap.isKeyValid 4 &&
+  !sampleHashMap.isKeyValid 8
+
+/-- Program that performs map lookup -/
+def map_lookup_program : Array Insn :=
+  #[
+    -- Assume R1 = map_ptr, R2 = key_ptr (from context)
+    -- Call bpf_map_lookup_elem(R1, R2)
+    -- R1 and R2 are already set up by caller
+    Insn.call HelperFunc.MapLookupElem,
+
+    -- R0 now contains pointer to map value (or NULL)
+    -- Check if lookup succeeded
+    Insn.movImm Reg.R1 0,
+    Insn.jeq Reg.R0 Reg.R1 2,  -- if R0 == NULL, return 0
+
+    -- Lookup succeeded, load value from map
+    Insn.ldx MemSize.DW Reg.R0 Reg.R0 0,
+    Insn.exit,
+
+    -- NULL case: return 0
+    Insn.movImm Reg.R0 0,
+    Insn.exit
+  ]
+
+/-- Test: Map lookup program verifies -/
+def test_map_lookup : Bool :=
+  match verifyProgram map_lookup_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
 /-! ## Helper Function Test Programs -/
 
 /-- Program that calls bpf_ktime_get_ns helper -/
@@ -598,6 +697,19 @@ def all_tests : List (String × Bool) := [
   ("verify_branch", test_verify_branch),
   ("detect_div_zero", test_detect_div_zero),
   ("range_refinement", test_range_refinement),
+
+  -- State merging tests
+  ("merge_tnum_idem", test_merge_tnum_idem),
+  ("merge_tnum_diff", test_merge_tnum_diff),
+  ("merge_regstate_same_type", test_merge_regstate_same_type),
+  ("merge_regstate_diff_type", test_merge_regstate_diff_type),
+  ("merge_program", test_merge_program),
+
+  -- Map operation tests
+  ("map_hash", test_map_hash),
+  ("map_array", test_map_array),
+  ("map_key_valid", test_map_key_valid),
+  ("map_lookup", test_map_lookup),
 
   -- Helper function tests
   ("helper_ktime", test_helper_ktime),

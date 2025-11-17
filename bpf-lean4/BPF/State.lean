@@ -27,6 +27,50 @@ inductive RegType : Type where
   | ConstPtrToMap : RegType -- const pointer to map
   deriving Repr, BEq, DecidableEq
 
+/-! ## BPF Maps -/
+
+/-- BPF map types -/
+inductive MapType : Type where
+  | Hash      : MapType  -- Hash table
+  | Array     : MapType  -- Array map
+  | ProgArray : MapType  -- Program array (for tail calls)
+  | PerfEvent : MapType  -- Perf event array
+  | PerCpuHash : MapType  -- Per-CPU hash table
+  | PerCpuArray : MapType -- Per-CPU array
+  | StackTrace : MapType  -- Stack trace map
+  | LruHash : MapType     -- LRU hash table
+  deriving Repr, BEq, DecidableEq
+
+/-- BPF map descriptor -/
+structure MapDef where
+  /-- Map ID -/
+  id : Nat
+  /-- Type of map -/
+  mapType : MapType
+  /-- Size of key in bytes -/
+  keySize : Nat
+  /-- Size of value in bytes -/
+  valueSize : Nat
+  /-- Maximum number of entries -/
+  maxEntries : Nat
+  deriving Repr, BEq
+
+namespace MapDef
+
+/-- Check if key size is valid for this map -/
+def isKeyValid (m : MapDef) (size : Nat) : Bool :=
+  size == m.keySize
+
+/-- Check if value size is valid for this map -/
+def isValueValid (m : MapDef) (size : Nat) : Bool :=
+  size == m.valueSize
+
+/-- Get value pointer type after map lookup -/
+def valueRegType (m : MapDef) : RegType :=
+  RegType.PtrToMap
+
+end MapDef
+
 /-! ## Abstract Value Tracking -/
 
 /-- Tri-state number for abstract interpretation.

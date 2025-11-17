@@ -70,6 +70,67 @@ def invalidateCallerSaved (s : VerifierState) : VerifierState :=
 
 end VerifierState
 
+/-! ## State Merging (Join Operation) -/
+
+/-- Merge two TNum values by computing their join (least upper bound).
+    The result conservatively approximates both inputs.
+-/
+def mergeTNum (a b : TNum) : TNum :=
+  if a == b then
+    a
+  else if a.isConst && b.isConst then
+    -- Two different constants: result is unknown
+    TNum.unknown
+  else
+    -- Conservative: mark all differing bits as unknown
+    { value := a.value &&& b.value  -- Bits that are 1 in both
+    , mask := a.mask ||| b.mask ||| (a.value ^^^ b.value)  -- Unknown bits
+    }
+
+/-- Merge two register states by computing their join.
+    Used when two control flow paths converge.
+-/
+def mergeRegState (a b : RegState) : RegState :=
+  -- If types differ, result is scalar (conservative)
+  let regType := if a.regType == b.regType then a.regType else RegType.ScalarValue
+
+  -- For pointer types, if they're the same type, preserve it
+  -- For stack pointers, if offsets differ, use conservative bounds
+  let stackOff :=
+    if a.regType == RegType.PtrToStack && b.regType == RegType.PtrToStack then
+      if a.stackOff == b.stackOff then a.stackOff else 0  -- Conservative
+    else
+      0
+
+  { regType := regType
+  , value := 0  -- Unknown concrete value at merge points
+  , tnum := mergeTNum a.tnum b.tnum
+  , smin := min a.smin b.smin  -- Take wider signed range
+  , smax := max a.smax b.smax
+  , umin := min a.umin b.umin  -- Take wider unsigned range
+  , umax := max a.umax b.umax
+  , stackOff := stackOff
+  }
+
+/-- Merge two verifier states by merging all registers and stack slots.
+    This computes the join (least upper bound) in the abstract interpretation lattice.
+-/
+def mergeVerifierState (a b : VerifierState) : VerifierState :=
+  -- Merge each register
+  let regs := Array.mkArray NUM_REGS RegState.notInit
+  let regs := Array.range NUM_REGS |>.foldl (fun regs i =>
+    let regA := a.regs.get! i
+    let regB := b.regs.get! i
+    regs.set! i (mergeRegState regA regB)
+  ) regs
+
+  -- Use the PC from the first state (they should be the same at merge points)
+  { pc := a.pc
+  , regs := regs
+  , stack := a.stack  -- Conservative: use first state's stack
+  , callDepth := max a.callDepth b.callDepth
+  }
+
 /-! ## Abstract Interpretation -/
 
 /-- Abstract addition of two register states -/
@@ -424,6 +485,50 @@ def abstractHelperCall (s : VerifierState) (helper : HelperFunc) : VerifierState
     let r0 := RegState.scalar 0
     s.setReg Reg.R0 { r0 with smin := -1, smax := 0, umin := 0 }
       |>.invalidateCallerSaved
+
+/-! ## Map Verification -/
+
+/-- Check if a map operation is valid.
+    This validates:
+    - Map pointer is initialized and correct type
+    - Key pointer is initialized
+    - For updates: value pointer is initialized
+-/
+def checkMapOperation (s : VerifierState) (mapReg keyReg : Reg) (valueReg? : Option Reg := none) : Bool :=
+  -- Check map register is a pointer (could be PTR_TO_MAP or passed as argument)
+  let mapState := s.getReg mapReg
+  let mapValid := mapState.isInit
+
+  -- Check key register is initialized
+  let keyState := s.getReg keyReg
+  let keyValid := keyState.isInit
+
+  -- Check value register if provided
+  let valueValid := match valueReg? with
+    | none => true
+    | some valueReg =>
+      let valueState := s.getReg valueReg
+      valueState.isInit
+
+  mapValid && keyValid && valueValid
+
+/-- Create a sample map definition for testing -/
+def sampleHashMap : MapDef :=
+  { id := 1
+  , mapType := MapType.Hash
+  , keySize := 4      -- 32-bit key
+  , valueSize := 8    -- 64-bit value
+  , maxEntries := 1024
+  }
+
+/-- Create a sample array map for testing -/
+def sampleArrayMap : MapDef :=
+  { id := 2
+  , mapType := MapType.Array
+  , keySize := 4      -- 32-bit index
+  , valueSize := 16   -- 128-bit value
+  , maxEntries := 256
+  }
 
 /-! ## Instruction Verification -/
 

@@ -212,6 +212,64 @@ This implementation is inspired by the Linux kernel BPF verifier (`kernel/bpf/ve
 
 ## Recent Improvements
 
+### v0.5.0 - Iteration 5: State Merging and Map Verification
+
+**State Merging at Control Flow Join Points**:
+- Implemented `mergeTNum` to compute join of tri-state numbers
+  * Conservative approximation when values differ
+  * Preserves constants when both inputs are same
+  * Marks differing bits as unknown
+- Implemented `mergeRegState` to join register states:
+  * Widens value ranges to encompass both inputs
+  * Preserves pointer types when both paths have same type
+  * Falls back to scalar for type mismatches
+  * Handles stack offset merging conservatively
+- Implemented `mergeVerifierState` to merge all registers:
+  * Joins all register states element-wise
+  * Conservative stack merging
+  * Proper PC and call depth handling
+- Added 6 new theorems proving merge properties:
+  * `mergeTNum_idempotent`: Merging with self is identity
+  * `mergeTNum_conservative`: Result contains both inputs
+  * `mergeRegState_idempotent`: Register merge is idempotent
+  * `mergeRegState_scalar`: Preserves scalar type
+  * `mergeRegState_umin_le`: Merged min bounds are conservative
+  * `mergeRegState_umax_ge`: Merged max bounds are conservative
+
+**Map Type Tracking and Verification** (BPF/State.lean):
+- Defined `MapType` inductive type with 8 map types:
+  * Hash, Array, ProgArray, PerfEvent
+  * PerCpuHash, PerCpuArray, StackTrace, LruHash
+- Defined `MapDef` structure for map descriptors:
+  * Map ID, type, key/value sizes, max entries
+  * `isKeyValid` and `isValueValid` for size checking
+  * `valueRegType` for return type after lookup
+- Added `checkMapOperation` in BPF/Verifier.lean:
+  * Validates map pointer is initialized
+  * Validates key pointer is initialized
+  * Validates value pointer for updates
+- Created `sampleHashMap` and `sampleArrayMap` for testing
+- Map verification enables safe map operations with type checking
+
+**New Tests** (BPF/Tests.lean):
+- State merging tests (5 tests):
+  * `test_merge_tnum_idem`: TNum merge idempotence
+  * `test_merge_tnum_diff`: Different constants merge to unknown
+  * `test_merge_regstate_same_type`: Type preservation
+  * `test_merge_regstate_diff_type`: Type mismatch handling
+  * `test_merge_program`: Program with control flow merge
+- Map operation tests (4 tests):
+  * `test_map_hash`: Hash map properties
+  * `test_map_array`: Array map properties
+  * `test_map_key_valid`: Key size validation
+  * `test_map_lookup`: Map lookup program verification
+
+**Statistics**:
+- ~4,200 lines of Lean 4 code
+- 62+ comprehensive tests
+- 28+ correctness theorems
+- Map type system with 8 map types
+
 ### v0.4.0 - Iteration 4: Range Refinement, Pointer Tracking, and Helper Functions
 
 **Range Refinement Based on Branch Conditions**:

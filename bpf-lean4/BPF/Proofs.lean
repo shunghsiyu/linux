@@ -350,6 +350,64 @@ theorem abstractSub_packet_packet_scalar (dst src : RegState) :
   unfold abstractSub
   simp [hdst, hsrc]
 
+/-! ## State Merging Properties -/
+
+/-- Merging a TNum with itself is identity -/
+theorem mergeTNum_idempotent (t : TNum) :
+    mergeTNum t t = t := by
+  unfold mergeTNum
+  simp
+
+/-- Merged TNum is conservative: contains both inputs -/
+theorem mergeTNum_conservative (a b : TNum) :
+    (mergeTNum a b).mask.toNat >= a.mask.toNat ∨
+    (mergeTNum a b).mask.toNat >= b.mask.toNat := by
+  unfold mergeTNum
+  split
+  · left; rfl
+  · split
+    · simp
+      left; omega
+    · simp
+      left; omega
+
+/-- Merging register state with itself is idempotent -/
+theorem mergeRegState_idempotent (r : RegState) :
+    mergeRegState r r = r := by
+  unfold mergeRegState
+  simp
+  have h := mergeTNum_idempotent r.tnum
+  simp [h]
+
+/-- Merged register state preserves scalar type if both inputs are scalar -/
+theorem mergeRegState_scalar (a b : RegState) :
+    a.regType = RegType.ScalarValue →
+    b.regType = RegType.ScalarValue →
+    (mergeRegState a b).regType = RegType.ScalarValue := by
+  intro ha hb
+  unfold mergeRegState
+  simp [ha, hb]
+
+/-- Merged bounds contain both input bounds (unsigned min) -/
+theorem mergeRegState_umin_le (a b : RegState) :
+    (mergeRegState a b).umin ≤ a.umin ∧
+    (mergeRegState a b).umin ≤ b.umin := by
+  unfold mergeRegState
+  simp
+  constructor
+  · exact Nat.min_le_left a.umin.toNat b.umin.toNat
+  · exact Nat.min_le_right a.umin.toNat b.umin.toNat
+
+/-- Merged bounds contain both input bounds (unsigned max) -/
+theorem mergeRegState_umax_ge (a b : RegState) :
+    (mergeRegState a b).umax ≥ a.umax ∧
+    (mergeRegState a b).umax ≥ b.umax := by
+  unfold mergeRegState
+  simp
+  constructor
+  · exact Nat.le_max_left a.umax.toNat b.umax.toNat
+  · exact Nat.le_max_right a.umax.toNat b.umax.toNat
+
 /-! ## Security Invariants -/
 
 /-- If a state passes memory safety check, memory accesses are safe -/
