@@ -88,37 +88,130 @@ def abstractAdd (dst src : RegState) : RegState :=
 
 /-- Abstract subtraction of two register states -/
 def abstractSub (dst src : RegState) : RegState :=
+  let concrete := dst.value - src.value
+  -- For subtraction: dst - src
+  -- smin = dst.smin - src.smax (most negative result)
+  -- smax = dst.smax - src.smin (most positive result)
+  let smin := dst.smin - src.smax
+  let smax := dst.smax - src.smin
+  -- For unsigned: be conservative due to wrap-around
+  let umin := if dst.umin.toNat < src.umax.toNat then 0 else dst.umin - src.umax
+  let umax := dst.umax
   { regType := RegType.ScalarValue
-  , value := dst.value - src.value
-  , tnum := TNum.unknown  -- Conservative: don't track
-  , smin := dst.smin - src.smax  -- Note: reversed for min/max
-  , smax := dst.smax - src.smin
-  , umin := if dst.umin.toNat < src.umax.toNat then 0 else dst.umin - src.umax
-  , umax := dst.umax  -- Conservative upper bound
+  , value := concrete
+  , tnum := if dst.tnum.isConst && src.tnum.isConst then
+              TNum.const concrete
+            else
+              TNum.unknown
+  , smin := smin
+  , smax := smax
+  , umin := umin
+  , umax := umax
   , stackOff := 0
   }
 
 /-- Abstract bitwise AND -/
 def abstractAnd (dst src : RegState) : RegState :=
+  let concrete := dst.value &&& src.value
   { regType := RegType.ScalarValue
-  , value := dst.value &&& src.value
+  , value := concrete
   , tnum := dst.tnum.and src.tnum
-  , smin := Int64.min  -- Conservative
+  , smin := Int64.min  -- Conservative (AND can change sign)
   , smax := Int64.max
-  , umin := 0
-  , umax := min dst.umax src.umax  -- AND can only make smaller
+  , umin := 0  -- AND can produce 0
+  , umax := min dst.umax src.umax  -- AND can only make smaller (unsigned)
   , stackOff := 0
   }
 
 /-- Abstract bitwise OR -/
 def abstractOr (dst src : RegState) : RegState :=
+  let concrete := dst.value ||| src.value
+  -- If both operands have known upper bounds that are powers of 2 minus 1,
+  -- we can compute a tight upper bound for OR
+  let conservativeUmax := UInt64.max
   { regType := RegType.ScalarValue
-  , value := dst.value ||| src.value
+  , value := concrete
   , tnum := dst.tnum.or src.tnum
+  , smin := Int64.min  -- Conservative
+  , smax := Int64.max
+  , umin := max dst.umin src.umin  -- OR can only make larger (unsigned)
+  , umax := conservativeUmax  -- Conservative (could be tighter)
+  , stackOff := 0
+  }
+
+/-- Abstract bitwise XOR -/
+def abstractXor (dst src : RegState) : RegState :=
+  let concrete := dst.value ^^^ src.value
+  { regType := RegType.ScalarValue
+  , value := concrete
+  , tnum := TNum.unknown  -- Conservative: XOR is complex
   , smin := Int64.min
   , smax := Int64.max
-  , umin := max dst.umin src.umin  -- OR can only make larger
+  , umin := 0
   , umax := UInt64.max  -- Conservative
+  , stackOff := 0
+  }
+
+/-- Abstract multiplication -/
+def abstractMul (dst src : RegState) : RegState :=
+  let concrete := dst.value * src.value
+  -- For multiplication, bounds can grow quickly
+  -- Be conservative to avoid overflow issues
+  { regType := RegType.ScalarValue
+  , value := concrete
+  , tnum := if dst.tnum.isConst && src.tnum.isConst then
+              TNum.const concrete
+            else
+              TNum.unknown
+  , smin := Int64.min  -- Conservative
+  , smax := Int64.max
+  , umin := if dst.umin == 0 || src.umin == 0 then 0 else dst.umin * src.umin
+  , umax := UInt64.max  -- Conservative (could overflow)
+  , stackOff := 0
+  }
+
+/-- Abstract division -/
+def abstractDiv (dst src : RegState) : RegState :=
+  let concrete := if src.value != 0 then dst.value / src.value else 0
+  -- Division makes values smaller (unsigned)
+  { regType := RegType.ScalarValue
+  , value := concrete
+  , tnum := if dst.tnum.isConst && src.tnum.isConst && src.value != 0 then
+              TNum.const concrete
+            else
+              TNum.unknown
+  , smin := Int64.min  -- Conservative
+  , smax := Int64.max
+  , umin := 0  -- Division can produce 0
+  , umax := dst.umax  -- Result <= dividend (unsigned)
+  , stackOff := 0
+  }
+
+/-- Abstract left shift -/
+def abstractLsh (dst src : RegState) : RegState :=
+  let shamt := if src.value.toNat > 63 then 63 else src.value.toNat
+  let concrete := dst.value <<< shamt
+  { regType := RegType.ScalarValue
+  , value := concrete
+  , tnum := TNum.unknown  -- Conservative
+  , smin := Int64.min
+  , smax := Int64.max
+  , umin := dst.umin <<< shamt  -- Lower bound shifts up
+  , umax := UInt64.max  -- Conservative (could overflow)
+  , stackOff := 0
+  }
+
+/-- Abstract logical right shift -/
+def abstractRsh (dst src : RegState) : RegState :=
+  let shamt := if src.value.toNat > 63 then 63 else src.value.toNat
+  let concrete := dst.value >>> shamt
+  { regType := RegType.ScalarValue
+  , value := concrete
+  , tnum := TNum.unknown  -- Conservative
+  , smin := 0  -- Right shift of unsigned is always non-negative
+  , smax := Int64.max
+  , umin := dst.umin >>> shamt  -- Lower bound shifts down
+  , umax := dst.umax >>> shamt  -- Upper bound shifts down
   , stackOff := 0
   }
 
@@ -129,12 +222,38 @@ def abstractMov (src : RegState) : RegState :=
 /-- Perform abstract interpretation of an ALU operation -/
 def abstractAluOp (op : AluOp) (dst src : RegState) : RegState :=
   match op with
-  | AluOp.ADD => abstractAdd dst src
-  | AluOp.SUB => abstractSub dst src
-  | AluOp.AND => abstractAnd dst src
-  | AluOp.OR  => abstractOr dst src
-  | AluOp.MOV => abstractMov src
-  | _ => RegState.scalar 0  -- Simplified: other ops produce unknown scalar
+  | AluOp.ADD  => abstractAdd dst src
+  | AluOp.SUB  => abstractSub dst src
+  | AluOp.MUL  => abstractMul dst src
+  | AluOp.DIV  => abstractDiv dst src
+  | AluOp.AND  => abstractAnd dst src
+  | AluOp.OR   => abstractOr dst src
+  | AluOp.XOR  => abstractXor dst src
+  | AluOp.LSH  => abstractLsh dst src
+  | AluOp.RSH  => abstractRsh dst src
+  | AluOp.MOV  => abstractMov src
+  | AluOp.NEG  =>
+    { regType := RegType.ScalarValue
+    , value := -dst.value
+    , tnum := TNum.unknown
+    , smin := -dst.smax  -- Negation reverses min/max
+    , smax := -dst.smin
+    , umin := 0
+    , umax := UInt64.max
+    , stackOff := 0
+    }
+  | AluOp.MOD  =>
+    let concrete := if src.value != 0 then dst.value % src.value else 0
+    { regType := RegType.ScalarValue
+    , value := concrete
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := 0
+    , umax := if src.umax > 0 then src.umax - 1 else UInt64.max  -- x % n < n
+    , stackOff := 0
+    }
+  | _ => RegState.scalar 0  -- ARSH, END: simplified
 
 /-! ## Instruction Verification -/
 
@@ -401,13 +520,37 @@ def certifyProgram (prog : Array Insn) : Option CertifiedProgram :=
 
 /-! ## Pretty Printing -/
 
+/-- Format a security violation for display -/
+def formatViolation : SecurityViolation → String
+  | SecurityViolation.UninitializedRead reg =>
+    s!"Uninitialized register read: {repr reg}"
+  | SecurityViolation.InvalidMemoryAccess addr =>
+    s!"Invalid memory access at offset {addr}"
+  | SecurityViolation.StackOverflow =>
+    "Stack overflow detected"
+  | SecurityViolation.StackUnderflow =>
+    "Stack underflow detected"
+  | SecurityViolation.TypeMismatch expected actual =>
+    s!"Type mismatch: expected {repr expected}, got {repr actual}"
+  | SecurityViolation.DivisionByZero =>
+    "Division or modulo by zero"
+  | SecurityViolation.InfiniteLoop =>
+    "Potential infinite loop detected (back-edge found)"
+  | SecurityViolation.InvalidInstruction =>
+    "Invalid or unsupported instruction"
+  | SecurityViolation.CallStackOverflow =>
+    s!"Call stack overflow (max depth: {MAX_CALL_FRAMES})"
+  | SecurityViolation.InvalidJump offset =>
+    s!"Invalid jump to offset {offset}"
+
 /-- Format verification result for display -/
 def formatVerifyResult : VerifyResult → String
-  | VerifyResult.Valid => "✓ Program verified successfully"
+  | VerifyResult.Valid =>
+    "✓ Program verified successfully"
   | VerifyResult.Invalid violation pc =>
-    s!"✗ Verification failed at PC {pc}: {repr violation}"
+    s!"✗ Verification failed at instruction {pc}:\n  {formatViolation violation}"
   | VerifyResult.ComplexityLimit =>
-    "✗ Verification complexity limit exceeded"
+    "✗ Verification complexity limit exceeded\n  Program is too complex to verify"
 
 /-! ## Example Programs -/
 

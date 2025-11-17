@@ -195,6 +195,49 @@ def test_abstract_mov : Bool :=
   let result := abstractMov src
   result.value == 42 && result.isScalar
 
+/-- Test: Abstract multiplication -/
+def test_abstract_mul : Bool :=
+  let dst := RegState.scalar 6
+  let src := RegState.scalar 7
+  let result := abstractMul dst src
+  result.value == 42 && result.isScalar
+
+/-- Test: Abstract division -/
+def test_abstract_div : Bool :=
+  let dst := RegState.scalar 84
+  let src := RegState.scalar 2
+  let result := abstractDiv dst src
+  result.value == 42 && result.isScalar
+
+/-- Test: Abstract XOR -/
+def test_abstract_xor : Bool :=
+  let dst := RegState.scalar 0xF0
+  let src := RegState.scalar 0x0F
+  let result := abstractXor dst src
+  result.value == 0xFF && result.isScalar
+
+/-- Test: Abstract left shift -/
+def test_abstract_lsh : Bool :=
+  let dst := RegState.scalar 21
+  let src := RegState.scalar 1  -- Shift left by 1 = multiply by 2
+  let result := abstractLsh dst src
+  result.value == 42 && result.isScalar
+
+/-- Test: Abstract right shift -/
+def test_abstract_rsh : Bool :=
+  let dst := RegState.scalar 84
+  let src := RegState.scalar 1  -- Shift right by 1 = divide by 2
+  let result := abstractRsh dst src
+  result.value == 42 && result.isScalar
+
+/-- Test: Abstract MOD -/
+def test_abstract_mod : Bool :=
+  let dst := RegState.scalar 100
+  let src := RegState.scalar 58
+  let result := abstractAluOp AluOp.MOD dst src
+  result.value == 42 && result.isScalar &&
+  result.umax < 58  -- Result should be less than modulus
+
 /-! ## Complex Program Tests -/
 
 /-- Test program: Add two registers
@@ -449,7 +492,13 @@ def all_tests : List (String × Bool) := [
   -- Abstract interpretation tests
   ("abstract_add", test_abstract_add),
   ("abstract_sub", test_abstract_sub),
+  ("abstract_mul", test_abstract_mul),
+  ("abstract_div", test_abstract_div),
   ("abstract_and", test_abstract_and),
+  ("abstract_xor", test_abstract_xor),
+  ("abstract_lsh", test_abstract_lsh),
+  ("abstract_rsh", test_abstract_rsh),
+  ("abstract_mod", test_abstract_mod),
   ("abstract_mov", test_abstract_mov),
 
   -- Program verification tests
