@@ -146,24 +146,38 @@ inductive VerifyInsnResult : Type where
   deriving Repr
 
 /-- Verify an ALU instruction -/
-def verifyAluInsn (s : VerifierState) (insn : Insn) (op : AluOp) : VerifyInsnResult :=
-  -- Check that source and destination registers are initialized
+def verifyAluInsn (s : VerifierState) (insn : Insn) : VerifyInsnResult :=
+  -- Check that destination register is initialized
   let dstReg := s.getReg insn.dst_reg
-  let srcReg := s.getReg insn.src_reg
 
   if ¬dstReg.isInit then
     VerifyInsnResult.Invalid (SecurityViolation.UninitializedRead insn.dst_reg)
-  else if ¬srcReg.isInit && op != AluOp.MOV then
-    VerifyInsnResult.Invalid (SecurityViolation.UninitializedRead insn.src_reg)
   else
-    -- Check for division by zero
-    if (op == AluOp.DIV || op == AluOp.MOD) && srcReg.umin == 0 then
-      VerifyInsnResult.Invalid SecurityViolation.DivisionByZero
+    -- Get source (register or immediate)
+    let srcReg :=
+      if insn.isImmediate then
+        -- Immediate value - always initialized
+        RegState.scalar insn.imm.toUInt64
+      else
+        s.getReg insn.src_reg
+
+    -- Check source register initialization (if not immediate)
+    if ¬insn.isImmediate && ¬srcReg.isInit then
+      VerifyInsnResult.Invalid (SecurityViolation.UninitializedRead insn.src_reg)
     else
-      -- Perform abstract interpretation
-      let newReg := abstractAluOp op dstReg srcReg
-      let newState := s.setReg insn.dst_reg newReg
-      VerifyInsnResult.Valid { newState with pc := s.pc + 1 }
+      -- Get ALU operation
+      match insn.getAluOp with
+      | none =>
+        VerifyInsnResult.Invalid SecurityViolation.InvalidInstruction
+      | some op =>
+        -- Check for division by zero
+        if (op == AluOp.DIV || op == AluOp.MOD) && srcReg.umin == 0 then
+          VerifyInsnResult.Invalid SecurityViolation.DivisionByZero
+        else
+          -- Perform abstract interpretation
+          let newReg := abstractAluOp op dstReg srcReg
+          let newState := s.setReg insn.dst_reg newReg
+          VerifyInsnResult.Valid { newState with pc := s.pc + 1 }
 
 /-- Verify a load instruction -/
 def verifyLoadInsn (s : VerifierState) (insn : Insn) (size : MemSize) : VerifyInsnResult :=
@@ -245,25 +259,30 @@ def verifyJumpInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : Verif
 /-- Verify a single instruction -/
 def verifyInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : VerifyInsnResult :=
   match insn.getClass with
-  | some InsnClass.ALU64 =>
-    verifyAluInsn s insn AluOp.ADD  -- Simplified: assume ADD
-
-  | some InsnClass.ALU =>
-    verifyAluInsn s insn AluOp.ADD  -- Simplified: assume ADD
+  | some InsnClass.ALU64 | some InsnClass.ALU =>
+    -- ALU operation (use improved verifier)
+    verifyAluInsn s insn
 
   | some InsnClass.LDX =>
-    verifyLoadInsn s insn MemSize.DW
+    -- Load instruction - use actual memory size from instruction
+    let size := insn.getMemSize.getD MemSize.DW
+    verifyLoadInsn s insn size
 
-  | some InsnClass.STX =>
-    verifyStoreInsn s insn MemSize.DW
+  | some InsnClass.STX | some InsnClass.ST =>
+    -- Store instruction - use actual memory size from instruction
+    let size := insn.getMemSize.getD MemSize.DW
+    verifyStoreInsn s insn size
 
-  | some InsnClass.JMP =>
+  | some InsnClass.JMP | some InsnClass.JMP32 =>
     verifyJumpInsn s insn prog
 
-  | some InsnClass.JMP32 =>
-    verifyJumpInsn s insn prog
+  | some InsnClass.LD =>
+    -- Wide immediate load (simplified: mark dst as scalar)
+    let newReg := RegState.scalar 0
+    let newState := s.setReg insn.dst_reg newReg
+    VerifyInsnResult.Valid { newState with pc := s.pc + 1 }
 
-  | _ =>
+  | none =>
     VerifyInsnResult.Invalid SecurityViolation.InvalidInstruction
 
 /-! ## Program Verification -/

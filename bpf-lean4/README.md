@@ -210,9 +210,48 @@ This implementation is inspired by the Linux kernel BPF verifier (`kernel/bpf/ve
 - **Simplified**: Focuses on core verification logic
 - **Educational**: Designed to be readable and understandable
 
+## Recent Improvements (v0.2.0)
+
+### Enhanced Instruction Support
+- **Complete instruction decoding**: Extract ALU ops, memory size, source type from opcodes
+- **15+ instruction constructors**: ADD, SUB, MUL, DIV, AND, OR, XOR, LSH, RSH, LDX, STX, JEQ, JNE, JGT, etc.
+- **Immediate operand support**: Full support for immediate vs. register operands
+- **Memory size variants**: Support for 8, 16, 32, and 64-bit memory operations
+
+### Improved Execution Semantics
+- **Complete ALU operations**: All arithmetic, bitwise, and shift operations
+- **32-bit/64-bit distinction**: Proper masking for 32-bit ALU operations
+- **Shift clamping**: Shifts limited to 63 bits (matching hardware behavior)
+- **Memory operations**: Full load/store with size variants
+- **Conditional jumps**: Proper handling of JEQ, JNE, JGT, JLT
+
+### Enhanced Verifier
+- **Improved immediate handling**: Immediate values treated as always initialized
+- **Better opcode extraction**: Use decoded ALU ops instead of assumptions
+- **Memory size detection**: Extract actual memory sizes from instructions
+- **More precise error reporting**: Better error messages with violation types
+
+### Expanded Test Suite
+Now includes 42+ tests covering:
+- **Basic instruction encoding**: MOV, ADD, EXIT, etc.
+- **Arithmetic programs**: SUB, MUL, DIV with multiple operations
+- **Bitwise programs**: AND, OR, XOR operations
+- **Immediate arithmetic**: Operations with immediate operands
+- **Stack operations**: Load/store to stack with frame pointer
+- **Conditional branches**: Jump instructions with branching logic
+- **Division by zero detection**: Proper static detection of div-by-zero
+
+### Example Programs
+- Simple arithmetic (R0 = 42)
+- Complex arithmetic (multiple SUB, MUL, DIV)
+- Bitwise operations (AND, OR, XOR)
+- Stack load/store operations
+- Conditional branching with jumps
+- Division by zero (correctly rejected)
+
 ## Testing
 
-The test suite includes 35+ tests covering:
+The test suite includes 42+ tests covering:
 
 - Basic instruction encoding
 - Register state operations

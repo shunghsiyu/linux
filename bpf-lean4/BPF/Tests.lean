@@ -214,6 +214,132 @@ def test_verify_add : Bool :=
   | VerifyResult.Valid => true
   | _ => false
 
+/-- Test program: Arithmetic operations
+    R0 = 100
+    R2 = 7
+    R0 -= R2  // R0 = 93
+    R0 *= R2  // R0 = 651
+    R0 /= R2  // R0 = 93
+    EXIT
+-/
+def arithmetic_program : Array Insn :=
+  #[Insn.movImm Reg.R0 100,
+    Insn.movImm Reg.R2 7,
+    Insn.sub Reg.R0 Reg.R2,
+    Insn.mul Reg.R0 Reg.R2,
+    Insn.div Reg.R0 Reg.R2,
+    Insn.exit]
+
+/-- Test: Arithmetic program verifies -/
+def test_verify_arithmetic : Bool :=
+  match verifyProgram arithmetic_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Test program: Bitwise operations
+    R0 = 0xFF
+    R1 = 0x0F
+    R2 = R0 & R1  // Should be 0x0F
+    R3 = R0 | R1  // Should be 0xFF
+    R4 = R0 ^ R1  // Should be 0xF0
+    EXIT
+-/
+def bitwise_program : Array Insn :=
+  #[Insn.movImm Reg.R0 0xFF,
+    Insn.movImm Reg.R1 0x0F,
+    Insn.mov Reg.R2 Reg.R0,
+    Insn.and Reg.R2 Reg.R1,
+    Insn.mov Reg.R3 Reg.R0,
+    Insn.or Reg.R3 Reg.R1,
+    Insn.mov Reg.R4 Reg.R0,
+    Insn.xor Reg.R4 Reg.R1,
+    Insn.exit]
+
+/-- Test: Bitwise program verifies -/
+def test_verify_bitwise : Bool :=
+  match verifyProgram bitwise_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Test program: Immediate arithmetic
+    R0 = 10
+    R0 += 32
+    EXIT
+    (Should result in R0 = 42)
+-/
+def imm_arithmetic_program : Array Insn :=
+  #[Insn.movImm Reg.R0 10,
+    Insn.addImm Reg.R0 32,
+    Insn.exit]
+
+/-- Test: Immediate arithmetic verifies -/
+def test_verify_imm_arithmetic : Bool :=
+  match verifyProgram imm_arithmetic_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Test program: Stack operations
+    R2 = R10        // Get frame pointer
+    R2 += -8        // Point to stack slot
+    *(u64*)(R2) = R1  // Store R1 to stack
+    R0 = *(u64*)(R2)  // Load from stack
+    EXIT
+-/
+def stack_program : Array Insn :=
+  #[Insn.mov Reg.R2 Reg.R10,
+    Insn.addImm Reg.R2 (-8),
+    Insn.stx MemSize.DW Reg.R2 Reg.R1 0,
+    Insn.ldx MemSize.DW Reg.R0 Reg.R2 0,
+    Insn.exit]
+
+/-- Test: Stack operations program verifies -/
+def test_verify_stack : Bool :=
+  match verifyProgram stack_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Test program: Conditional branch
+    R0 = 42
+    R1 = 42
+    if R0 == R1 goto +2
+    R0 = 0  // Skip this
+    exit
+    R0 = 1  // Jump here
+    EXIT
+-/
+def branch_program : Array Insn :=
+  #[Insn.movImm Reg.R0 42,
+    Insn.movImm Reg.R1 42,
+    Insn.jeq Reg.R0 Reg.R1 2,
+    Insn.movImm Reg.R0 0,
+    Insn.exit,
+    Insn.movImm Reg.R0 1,
+    Insn.exit]
+
+/-- Test: Branch program verifies -/
+def test_verify_branch : Bool :=
+  match verifyProgram branch_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Test program: Division by zero detection
+    R0 = 100
+    R1 = 0
+    R0 /= R1  // Should be detected as unsafe
+    EXIT
+-/
+def div_zero_program : Array Insn :=
+  #[Insn.movImm Reg.R0 100,
+    Insn.movImm Reg.R1 0,
+    Insn.div Reg.R0 Reg.R1,
+    Insn.exit]
+
+/-- Test: Division by zero is detected -/
+def test_detect_div_zero : Bool :=
+  match verifyProgram div_zero_program with
+  | VerifyResult.Invalid SecurityViolation.DivisionByZero _ => true
+  | _ => false
+
 /-- Test program: Stack operations
     R2 = R10 (frame pointer)
     R2 += -8 (stack offset)
@@ -282,40 +408,65 @@ def test_full_pipeline : Bool :=
 
 /-- List of all test cases with names -/
 def all_tests : List (String × Bool) := [
+  -- Basic instruction tests
   ("mov_imm", test_mov_imm),
   ("exit", test_exit),
   ("add", test_add),
+
+  -- Register state tests
   ("notInit", test_notInit),
   ("scalar_init", test_scalar_init),
   ("scalar_value", test_scalar_value),
   ("scalar_type", test_scalar_type),
   ("ptr_to_stack", test_ptr_to_stack),
+
+  -- TNum tests
   ("tnum_const", test_tnum_const),
   ("tnum_unknown", test_tnum_unknown),
   ("tnum_get_const", test_tnum_get_const),
   ("tnum_and", test_tnum_and),
   ("tnum_or", test_tnum_or),
+
+  -- Policy tests
   ("policy_safe", test_policy_safe),
   ("policy_unsafe", test_policy_unsafe),
   ("policy_and_safe", test_policy_and_safe),
   ("check_reg_init", test_check_reg_init),
   ("stack_overflow", test_stack_overflow),
   ("stack_valid", test_stack_valid),
+
+  -- Execution tests
   ("simple_init", test_simple_init),
   ("halt", test_halt),
+
+  -- Verifier tests
   ("verify_simple", test_verify_simple),
   ("verify_uninit", test_verify_uninit),
   ("verify_size", test_verify_size),
   ("verifier_init_r1", test_verifier_init_r1),
   ("verifier_init_r10", test_verifier_init_r10),
+
+  -- Abstract interpretation tests
   ("abstract_add", test_abstract_add),
   ("abstract_sub", test_abstract_sub),
   ("abstract_and", test_abstract_and),
   ("abstract_mov", test_abstract_mov),
+
+  -- Program verification tests
   ("verify_add", test_verify_add),
+  ("verify_arithmetic", test_verify_arithmetic),
+  ("verify_bitwise", test_verify_bitwise),
+  ("verify_imm_arithmetic", test_verify_imm_arithmetic),
+  ("verify_stack", test_verify_stack),
+  ("verify_branch", test_verify_branch),
+  ("detect_div_zero", test_detect_div_zero),
+
+  -- Certification tests
   ("certify_valid", test_certify_valid),
   ("certify_invalid", test_certify_invalid),
   ("certified_load", test_certified_load),
+
+  -- Misc tests
   ("caller_saved", test_caller_saved),
   ("set_reg", test_set_reg),
   ("worklist", test_worklist),

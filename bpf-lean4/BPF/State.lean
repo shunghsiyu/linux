@@ -288,23 +288,44 @@ inductive StepResult : Type where
   | Error : String → StepResult
   deriving Repr
 
+/-- Mask value to 32 bits -/
+def mask32 (v : UInt64) : UInt64 :=
+  v &&& 0xFFFFFFFF
+
+/-- Sign extend from 32 to 64 bits -/
+def signExtend32 (v : UInt64) : UInt64 :=
+  if (v &&& 0x80000000) != 0 then
+    v ||| 0xFFFFFFFF00000000
+  else
+    v &&& 0xFFFFFFFF
+
 /-- Execute a single ALU operation -/
 def execAlu (op : AluOp) (dst : UInt64) (src : UInt64) (is64 : Bool) : Option UInt64 :=
-  match op with
-  | AluOp.ADD => some (dst + src)
-  | AluOp.SUB => some (dst - src)
-  | AluOp.MUL => some (dst * src)
-  | AluOp.DIV => if src != 0 then some (dst / src) else none
-  | AluOp.OR  => some (dst ||| src)
-  | AluOp.AND => some (dst &&& src)
-  | AluOp.LSH => some (dst <<< src.toNat)
-  | AluOp.RSH => some (dst >>> src.toNat)
-  | AluOp.NEG => some (-dst)
-  | AluOp.MOD => if src != 0 then some (dst % src) else none
-  | AluOp.XOR => some (dst ^^^ src)
-  | AluOp.MOV => some src
-  | AluOp.ARSH => some (dst.toInt64 >>> src.toNat).toUInt64
-  | _ => none
+  let result := match op with
+    | AluOp.ADD => some (dst + src)
+    | AluOp.SUB => some (dst - src)
+    | AluOp.MUL => some (dst * src)
+    | AluOp.DIV => if src != 0 then some (dst / src) else none
+    | AluOp.OR  => some (dst ||| src)
+    | AluOp.AND => some (dst &&& src)
+    | AluOp.LSH =>
+      -- Shifts beyond 63 are implementation-defined, clamp to 63
+      let shamt := if src.toNat > 63 then 63 else src.toNat
+      some (dst <<< shamt)
+    | AluOp.RSH =>
+      let shamt := if src.toNat > 63 then 63 else src.toNat
+      some (dst >>> shamt)
+    | AluOp.NEG => some (-dst)
+    | AluOp.MOD => if src != 0 then some (dst % src) else none
+    | AluOp.XOR => some (dst ^^^ src)
+    | AluOp.MOV => some src
+    | AluOp.ARSH =>
+      -- Arithmetic shift right (sign-extending)
+      let shamt := if src.toNat > 63 then 63 else src.toNat
+      some (dst.toInt64 >>> shamt).toUInt64
+    | AluOp.END => some dst  -- Endianness conversion (simplified)
+  -- Apply 32-bit masking if not 64-bit operation
+  result.map fun v => if is64 then v else mask32 v
 
 /-- Execute a jump condition -/
 def evalJmpCond (op : JmpOp) (dst : UInt64) (src : UInt64) : Bool :=
@@ -331,29 +352,106 @@ def step (s : ExecState) : StepResult :=
     | none => StepResult.Error "PC out of bounds"
     | some insn =>
       match insn.getClass with
-      | some InsnClass.ALU64 =>
-        -- 64-bit ALU operation
+      | some InsnClass.ALU64 | some InsnClass.ALU =>
+        -- ALU operation (64-bit or 32-bit)
+        let is64 := insn.is64Bit
         let dstReg := s.getReg insn.dst_reg
-        let srcReg := s.getReg insn.src_reg
-        -- Simplified: assume ADD operation for now
-        let result := dstReg.value + srcReg.value
-        let newReg := RegState.scalar result
-        StepResult.Continue (s.setReg insn.dst_reg newReg |>.incPC)
 
-      | some InsnClass.JMP =>
-        -- Check for EXIT
-        if insn.opcode == 0x95 then  -- BPF_EXIT
-          StepResult.Halt s
+        -- Get source value (register or immediate)
+        let srcVal :=
+          if insn.isImmediate then
+            insn.imm.toUInt64
+          else
+            (s.getReg insn.src_reg).value
+
+        -- Get ALU operation
+        match insn.getAluOp with
+        | some op =>
+          -- Execute ALU operation
+          match execAlu op dstReg.value srcVal is64 with
+          | some result =>
+            let newReg := RegState.scalar result
+            StepResult.Continue (s.setReg insn.dst_reg newReg |>.incPC)
+          | none =>
+            StepResult.Error "ALU operation failed (division by zero?)"
+        | none =>
+          StepResult.Error "Invalid ALU opcode"
+
+      | some InsnClass.LDX =>
+        -- Load from memory
+        let srcReg := s.getReg insn.src_reg
+        let offset := srcReg.stackOff.toInt + insn.off.toInt
+
+        -- Check if it's a stack access
+        if srcReg.regType == RegType.PtrToStack then
+          match s.stack.read? offset.toNat (insn.getMemSize.getD MemSize.DW) with
+          | some value =>
+            let newReg := RegState.scalar value
+            StepResult.Continue (s.setReg insn.dst_reg newReg |>.incPC)
+          | none =>
+            StepResult.Error "Invalid memory read"
         else
-          -- Regular jump
+          -- Simplified: assume successful read
+          let newReg := RegState.scalar 0
+          StepResult.Continue (s.setReg insn.dst_reg newReg |>.incPC)
+
+      | some InsnClass.STX | some InsnClass.ST =>
+        -- Store to memory
+        let dstReg := s.getReg insn.dst_reg
+        let srcVal :=
+          if insn.getClass == some InsnClass.STX then
+            (s.getReg insn.src_reg).value
+          else
+            insn.imm.toUInt64
+
+        let offset := dstReg.stackOff.toInt + insn.off.toInt
+
+        -- Update stack if it's a stack pointer
+        if dstReg.regType == RegType.PtrToStack then
+          let newStack := s.stack.write offset.toNat srcVal
+          StepResult.Continue { s with stack := newStack, pc := s.pc + 1 }
+        else
+          -- Simplified: ignore other stores
           StepResult.Continue (s.incPC)
 
-      | some InsnClass.ALU =>
-        -- 32-bit ALU operation
+      | some InsnClass.JMP | some InsnClass.JMP32 =>
+        -- Check for EXIT
+        if insn.opcode == 0x95 then
+          StepResult.Halt s
+        else if insn.off == 0 then
+          -- No jump offset, just continue
+          StepResult.Continue (s.incPC)
+        else
+          -- Conditional or unconditional jump
+          let dstVal := (s.getReg insn.dst_reg).value
+          let srcVal :=
+            if insn.isImmediate then
+              insn.imm.toUInt64
+            else
+              (s.getReg insn.src_reg).value
+
+          -- Determine jump type from opcode
+          let shouldJump :=
+            let opBits := insn.opcode.toNat &&& 0xf0
+            match opBits with
+            | 0x00 => true  -- JA (unconditional)
+            | 0x10 => dstVal == srcVal  -- JEQ
+            | 0x50 => dstVal != srcVal  -- JNE
+            | 0x20 => dstVal > srcVal   -- JGT
+            | 0xa0 => dstVal < srcVal   -- JLT
+            | _ => false
+
+          if shouldJump then
+            StepResult.Continue (s.jump insn.off.toInt)
+          else
+            StepResult.Continue (s.incPC)
+
+      | some InsnClass.LD =>
+        -- Wide immediate load (simplified)
         StepResult.Continue (s.incPC)
 
-      | _ =>
-        StepResult.Continue (s.incPC)
+      | none =>
+        StepResult.Error "Invalid instruction class"
 
 /-- Execute program for up to n steps -/
 def execSteps (s : ExecState) (fuel : Nat) : ExecState :=

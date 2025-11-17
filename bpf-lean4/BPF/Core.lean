@@ -166,9 +166,15 @@ structure Insn where
 
 namespace Insn
 
+/-- Opcode field extraction masks -/
+def BPF_CLASS_MASK : UInt8 := 0x07
+def BPF_OP_MASK : UInt8 := 0xf0
+def BPF_SRC_MASK : UInt8 := 0x08
+def BPF_SIZE_MASK : UInt8 := 0x18
+
 /-- Extract instruction class from opcode -/
 def getClass (insn : Insn) : Option InsnClass :=
-  let cls := insn.opcode.toNat &&& 0x07
+  let cls := insn.opcode.toNat &&& BPF_CLASS_MASK.toNat
   match cls with
   | 0x00 => some InsnClass.LD
   | 0x01 => some InsnClass.LDX
@@ -180,11 +186,52 @@ def getClass (insn : Insn) : Option InsnClass :=
   | 0x07 => some InsnClass.ALU64
   | _ => none
 
+/-- Extract ALU operation from opcode -/
+def getAluOp (insn : Insn) : Option AluOp :=
+  let op := insn.opcode.toNat &&& BPF_OP_MASK.toNat
+  match op with
+  | 0x00 => some AluOp.ADD
+  | 0x10 => some AluOp.SUB
+  | 0x20 => some AluOp.MUL
+  | 0x30 => some AluOp.DIV
+  | 0x40 => some AluOp.OR
+  | 0x50 => some AluOp.AND
+  | 0x60 => some AluOp.LSH
+  | 0x70 => some AluOp.RSH
+  | 0x80 => some AluOp.NEG
+  | 0x90 => some AluOp.MOD
+  | 0xa0 => some AluOp.XOR
+  | 0xb0 => some AluOp.MOV
+  | 0xc0 => some AluOp.ARSH
+  | 0xd0 => some AluOp.END
+  | _ => none
+
+/-- Extract source type (register vs immediate) -/
+def getInsnSrc (insn : Insn) : InsnSrc :=
+  if (insn.opcode.toNat &&& BPF_SRC_MASK.toNat) == 0 then
+    InsnSrc.K  -- immediate
+  else
+    InsnSrc.X  -- register
+
+/-- Extract memory size from opcode -/
+def getMemSize (insn : Insn) : Option MemSize :=
+  let size := insn.opcode.toNat &&& BPF_SIZE_MASK.toNat
+  match size with
+  | 0x00 => some MemSize.W   -- 32-bit
+  | 0x08 => some MemSize.H   -- 16-bit
+  | 0x10 => some MemSize.B   -- 8-bit
+  | 0x18 => some MemSize.DW  -- 64-bit
+  | _ => none
+
 /-- Check if instruction is a 64-bit operation -/
 def is64Bit (insn : Insn) : Bool :=
   match insn.getClass with
   | some InsnClass.ALU64 => true
   | _ => false
+
+/-- Check if instruction uses immediate operand -/
+def isImmediate (insn : Insn) : Bool :=
+  insn.getInsnSrc == InsnSrc.K
 
 /-- Create a MOV instruction -/
 def mov (dst : Reg) (src : Reg) : Insn :=
@@ -210,6 +257,151 @@ def add (dst : Reg) (src : Reg) : Insn :=
   , dst_reg := dst
   , src_reg := src
   , off := 0
+  , imm := 0
+  }
+
+/-- Create an ADD immediate instruction -/
+def addImm (dst : Reg) (imm : Int32) : Insn :=
+  { opcode := 0x07  -- BPF_ALU64 | BPF_ADD | BPF_K
+  , dst_reg := dst
+  , src_reg := Reg.R0
+  , off := 0
+  , imm := imm
+  }
+
+/-- Create a SUB instruction -/
+def sub (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x1F  -- BPF_ALU64 | BPF_SUB | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create a MUL instruction -/
+def mul (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x2F  -- BPF_ALU64 | BPF_MUL | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create a DIV instruction -/
+def div (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x3F  -- BPF_ALU64 | BPF_DIV | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create an AND instruction -/
+def and (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x5F  -- BPF_ALU64 | BPF_AND | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create an OR instruction -/
+def or (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x4F  -- BPF_ALU64 | BPF_OR | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create an XOR instruction -/
+def xor (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0xAF  -- BPF_ALU64 | BPF_XOR | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create a left shift instruction -/
+def lsh (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x6F  -- BPF_ALU64 | BPF_LSH | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create a logical right shift instruction -/
+def rsh (dst : Reg) (src : Reg) : Insn :=
+  { opcode := 0x7F  -- BPF_ALU64 | BPF_RSH | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := 0
+  , imm := 0
+  }
+
+/-- Create a load instruction (LDX) -/
+def ldx (size : MemSize) (dst : Reg) (src : Reg) (off : Int16) : Insn :=
+  let sizeCode := match size with
+    | MemSize.B => 0x10
+    | MemSize.H => 0x08
+    | MemSize.W => 0x00
+    | MemSize.DW => 0x18
+  { opcode := 0x01 ||| sizeCode  -- BPF_LDX | BPF_MEM | size
+  , dst_reg := dst
+  , src_reg := src
+  , off := off
+  , imm := 0
+  }
+
+/-- Create a store instruction (STX) -/
+def stx (size : MemSize) (dst : Reg) (src : Reg) (off : Int16) : Insn :=
+  let sizeCode := match size with
+    | MemSize.B => 0x10
+    | MemSize.H => 0x08
+    | MemSize.W => 0x00
+    | MemSize.DW => 0x18
+  { opcode := 0x03 ||| sizeCode  -- BPF_STX | BPF_MEM | size
+  , dst_reg := dst
+  , src_reg := src
+  , off := off
+  , imm := 0
+  }
+
+/-- Create a conditional jump if equal -/
+def jeq (dst : Reg) (src : Reg) (off : Int16) : Insn :=
+  { opcode := 0x1D  -- BPF_JMP | BPF_JEQ | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := off
+  , imm := 0
+  }
+
+/-- Create a conditional jump if not equal -/
+def jne (dst : Reg) (src : Reg) (off : Int16) : Insn :=
+  { opcode := 0x5D  -- BPF_JMP | BPF_JNE | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := off
+  , imm := 0
+  }
+
+/-- Create a conditional jump if greater than (unsigned) -/
+def jgt (dst : Reg) (src : Reg) (off : Int16) : Insn :=
+  { opcode := 0x2D  -- BPF_JMP | BPF_JGT | BPF_X
+  , dst_reg := dst
+  , src_reg := src
+  , off := off
+  , imm := 0
+  }
+
+/-- Create an unconditional jump -/
+def ja (off : Int16) : Insn :=
+  { opcode := 0x05  -- BPF_JMP | BPF_JA
+  , dst_reg := Reg.R0
+  , src_reg := Reg.R0
+  , off := off
   , imm := 0
   }
 
