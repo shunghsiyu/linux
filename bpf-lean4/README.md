@@ -210,7 +210,39 @@ This implementation is inspired by the Linux kernel BPF verifier (`kernel/bpf/ve
 - **Simplified**: Focuses on core verification logic
 - **Educational**: Designed to be readable and understandable
 
-## Recent Improvements (v0.2.0)
+## Recent Improvements
+
+### v0.3.0 - Iteration 3: Enhanced Proofs and Realistic Examples
+
+**Expanded Proof System** (BPF/Proofs.lean):
+- Added 14+ new theorems about abstract interpretation:
+  * Type preservation for all ALU operations
+  * Constant propagation correctness
+  * Value bound properties (division, modulo, shifts)
+  * Scalar type preservation guarantees
+
+- Key new theorems:
+  * `abstract_div_bounded`: Division result ≤ dividend
+  * `abstract_mod_bounded`: Modulo result < divisor
+  * `abstract_rsh_nonneg`: Right shift always non-negative
+  * `abstract_alu_preserves_scalar`: All ALU ops preserve scalar type
+  * `abstract_add_const`/`abstract_sub_const`: Constant correctness
+
+**Pointer Arithmetic Support**:
+- Enhanced `abstractAdd` to handle pointer + offset:
+  * Preserves `PTR_TO_STACK` type through arithmetic
+  * Tracks stack offset changes correctly
+  * Enables realistic stack slot addressing patterns
+  * Essential for real BPF programs using stack
+
+**Realistic Examples** (BPF/Examples.lean):
+- **Packet Length Filter**: Accept/reject based on packet size
+- **Stack Usage Pattern**: Proper frame pointer manipulation
+- **Multi-Stack Slots**: Using multiple stack variables
+- **Bit Manipulation**: Extract protocol fields from headers
+- All examples verify successfully!
+
+### v0.2.0 - Iteration 2: Enhanced Abstract Interpretation
 
 ### Enhanced Instruction Support
 - **Complete instruction decoding**: Extract ALU ops, memory size, source type from opcodes

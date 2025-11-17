@@ -177,6 +177,75 @@ theorem abstract_mov_preserves_type (src : RegState) :
     (abstractMov src).regType = src.regType := by
   rfl
 
+/-- Abstract multiplication preserves scalar type -/
+theorem abstract_mul_scalar (dst src : RegState) :
+    (abstractMul dst src).regType = RegType.ScalarValue := by
+  rfl
+
+/-- Abstract division preserves scalar type -/
+theorem abstract_div_scalar (dst src : RegState) :
+    (abstractDiv dst src).regType = RegType.ScalarValue := by
+  rfl
+
+/-- Abstract XOR preserves scalar type -/
+theorem abstract_xor_scalar (dst src : RegState) :
+    (abstractXor dst src).regType = RegType.ScalarValue := by
+  rfl
+
+/-- Abstract left shift preserves scalar type -/
+theorem abstract_lsh_scalar (dst src : RegState) :
+    (abstractLsh dst src).regType = RegType.ScalarValue := by
+  rfl
+
+/-- Abstract right shift preserves scalar type -/
+theorem abstract_rsh_scalar (dst src : RegState) :
+    (abstractRsh dst src).regType = RegType.ScalarValue := by
+  rfl
+
+/-- All ALU operations preserve scalar type -/
+theorem abstract_alu_preserves_scalar (op : AluOp) (dst src : RegState) :
+    dst.isScalar → src.isScalar →
+    (abstractAluOp op dst src).isScalar = true := by
+  intro _ _
+  unfold abstractAluOp
+  split <;> simp [RegState.isScalar]
+
+/-- Abstract addition of constants produces constant -/
+theorem abstract_add_const (a b : UInt64) :
+    let dst := RegState.scalar a
+    let src := RegState.scalar b
+    (abstractAdd dst src).value = a + b := by
+  rfl
+
+/-- Abstract subtraction of constants produces constant -/
+theorem abstract_sub_const (a b : UInt64) :
+    let dst := RegState.scalar a
+    let src := RegState.scalar b
+    (abstractSub dst src).value = a - b := by
+  rfl
+
+/-- Division result is bounded by dividend -/
+theorem abstract_div_bounded (dst src : RegState) :
+    src.umin > 0 →
+    (abstractDiv dst src).umax ≤ dst.umax := by
+  intro _
+  unfold abstractDiv
+  simp
+
+/-- Modulo result is bounded by divisor -/
+theorem abstract_mod_bounded (dst src : RegState) :
+    src.umax > 0 →
+    (abstractAluOp AluOp.MOD dst src).umax < src.umax := by
+  intro h
+  unfold abstractAluOp
+  simp
+  omega
+
+/-- Right shift result is non-negative (unsigned interpretation) -/
+theorem abstract_rsh_nonneg (dst src : RegState) :
+    (abstractRsh dst src).smin = 0 := by
+  rfl
+
 /-! ## Security Invariants -/
 
 /-- If a state passes memory safety check, memory accesses are safe -/

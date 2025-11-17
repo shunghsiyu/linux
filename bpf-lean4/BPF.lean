@@ -80,6 +80,7 @@ import BPF.Security
 import BPF.Verifier
 import BPF.Proofs
 import BPF.Tests
+import BPF.Examples
 
 namespace BPF
 

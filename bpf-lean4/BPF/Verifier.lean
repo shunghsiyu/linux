@@ -74,17 +74,32 @@ end VerifierState
 
 /-- Abstract addition of two register states -/
 def abstractAdd (dst src : RegState) : RegState :=
-  { regType := RegType.ScalarValue
-  , value := dst.value + src.value  -- concrete
-  , tnum := dst.tnum.add src.tnum   -- abstract
-  , smin := dst.smin + src.smin     -- conservative bounds
-  , smax := dst.smax + src.smax
-  , umin := dst.umin + src.umin
-  , umax := if dst.umax.toNat + src.umax.toNat > UInt64.max.toNat
-            then UInt64.max
-            else dst.umax + src.umax
-  , stackOff := 0
-  }
+  -- Handle pointer + scalar addition (for stack pointer arithmetic)
+  match dst.regType, src.regType with
+  | RegType.PtrToStack, RegType.ScalarValue =>
+    -- Pointer + offset: preserve pointer type, update stack offset
+    { regType := RegType.PtrToStack
+    , value := dst.value + src.value
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := dst.stackOff + src.value.toInt32  -- Track offset change
+    }
+  | _, _ =>
+    -- Scalar + scalar: normal arithmetic
+    { regType := RegType.ScalarValue
+    , value := dst.value + src.value
+    , tnum := dst.tnum.add src.tnum
+    , smin := dst.smin + src.smin
+    , smax := dst.smax + src.smax
+    , umin := dst.umin + src.umin
+    , umax := if dst.umax.toNat + src.umax.toNat > UInt64.max.toNat
+              then UInt64.max
+              else dst.umax + src.umax
+    , stackOff := 0
+    }
 
 /-- Abstract subtraction of two register states -/
 def abstractSub (dst src : RegState) : RegState :=
