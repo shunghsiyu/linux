@@ -23,10 +23,3 @@ import BpfLean.Security
 import BpfLean.Verifier
 import BpfLean.Proofs
 import BpfLean.Tests
-
--- Re-export key types and functions
-export BpfLean.Basic (BpfReg BpfClass BpfSize BpfAluOp BpfJmpOp)
-export BpfLean.Instruction (BpfInsn BpfInstr decodeBpfInsn)
-export BpfLean.State (BpfState RegFile Memory ExecResult)
-export BpfLean.Security (SecurityPolicy SafetyCertificate VerifyError verify)
-export BpfLean.Verifier (verifyProgram verifyAndRun)

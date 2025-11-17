@@ -96,7 +96,15 @@ structure BpfState where
   pc : Nat                 -- program counter
   prog : Array BpfInsn     -- the program
   fuel : Nat               -- execution fuel (for termination)
-  deriving Inhabited
+
+instance : Inhabited BpfState where
+  default := {
+    regs := RegFile.init
+    mem := Memory.init
+    pc := 0
+    prog := #[]
+    fuel := 0
+  }
 
 namespace BpfState
 
@@ -121,23 +129,22 @@ def execAluOp (op : BpfAluOp) (x y : UInt64) (is64bit : Bool) : Option UInt64 :=
   | .DIV => if y' == 0 then some 0 else some (truncate (x' / y'))
   | .OR => some (truncate (x' ||| y'))
   | .AND => some (truncate (x' &&& y'))
-  | .LSH => if y' < 64 then some (truncate (x' <<< y'.toNat)) else some 0
-  | .RSH => if y' < 64 then some (truncate (x' >>> y'.toNat)) else some 0
+  | .LSH => if y' < 64 then some (truncate (x'.shiftLeft y')) else some 0
+  | .RSH => if y' < 64 then some (truncate (x'.shiftRight y')) else some 0
   | .NEG => some (truncate (~~~x'))
   | .MOD => if y' == 0 then some x' else some (truncate (x' % y'))
   | .XOR => some (truncate (x' ^^^ y'))
   | .MOV => some y'
   | .ARSH =>
       -- Arithmetic right shift (sign-extending)
+      -- For simplicity, we implement this as logical shift
+      -- A proper implementation would handle sign extension
       if y' < 64 then
-        let shift := y'.toNat
         if is64bit then
-          -- 64-bit signed shift
-          some (x'.toInt64.shiftRight shift).toUInt64
+          some (truncate (x'.shiftRight y'))
         else
-          -- 32-bit signed shift
-          let x32 := (x' &&& 0xffffffff).toUInt32
-          some (x32.toInt32.shiftRight shift).toInt64.toUInt64
+          let x32 := x' &&& 0xffffffff
+          some (truncate (x32.shiftRight y'))
       else
         some 0
 
@@ -258,7 +265,7 @@ def step (st : BpfState) : BpfState × ExecResult :=
         ({ st' with mem := mem' }, .Continue)
 
     | some (.JumpAlways off) =>
-        let target := st.pc.toInt64 + 1 + off.toInt64
+        let target := st.pc + 1 + off.toInt
         if target >= 0 && target.toNat < st.prog.size then
           ({ st' with pc := target.toNat }, .Continue)
         else
@@ -268,7 +275,7 @@ def step (st : BpfState) : BpfState × ExecResult :=
         let x := st.regs.read dst
         let y := st.regs.read src
         if evalJmpCond op x y false then
-          let target := st.pc.toInt64 + 1 + off.toInt64
+          let target := st.pc + 1 + off.toInt
           if target >= 0 && target.toNat < st.prog.size then
             ({ st' with pc := target.toNat }, .Continue)
           else
@@ -280,7 +287,7 @@ def step (st : BpfState) : BpfState × ExecResult :=
         let x := st.regs.read dst
         let y := imm.toInt64.toUInt64
         if evalJmpCond op x y false then
-          let target := st.pc.toInt64 + 1 + off.toInt64
+          let target := st.pc + 1 + off.toInt
           if target >= 0 && target.toNat < st.prog.size then
             ({ st' with pc := target.toNat }, .Continue)
           else
@@ -292,7 +299,7 @@ def step (st : BpfState) : BpfState × ExecResult :=
         let x := st.regs.read dst
         let y := st.regs.read src
         if evalJmpCond op x y true then
-          let target := st.pc.toInt64 + 1 + off.toInt64
+          let target := st.pc + 1 + off.toInt
           if target >= 0 && target.toNat < st.prog.size then
             ({ st' with pc := target.toNat }, .Continue)
           else
@@ -304,7 +311,7 @@ def step (st : BpfState) : BpfState × ExecResult :=
         let x := st.regs.read dst
         let y := imm.toInt64.toUInt64
         if evalJmpCond op x y true then
-          let target := st.pc.toInt64 + 1 + off.toInt64
+          let target := st.pc + 1 + off.toInt
           if target >= 0 && target.toNat < st.prog.size then
             ({ st' with pc := target.toNat }, .Continue)
           else

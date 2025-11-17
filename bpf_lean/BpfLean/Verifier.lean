@@ -23,20 +23,26 @@ structure VerifierState where
   regs : AbstractRegFile
   stackDepth : Nat
   visited : Array Bool  -- which instructions have been visited
-  deriving Repr, Inhabited
+
+instance : Inhabited VerifierState where
+  default := {
+    regs := AbstractRegFile.init
+    stackDepth := 0
+    visited := #[]
+  }
 
 namespace VerifierState
 
 def init (progSize : Nat) : VerifierState :=
   { regs := AbstractRegFile.init
   , stackDepth := 0
-  , visited := Array.mkArray progSize false
+  , visited := Array.replicate progSize false
   }
 
 -- Mark an instruction as visited
 def markVisited (st : VerifierState) (pc : Nat) : VerifierState :=
   if h : pc < st.visited.size then
-    { st with visited := st.visited.set ⟨pc, h⟩ true }
+    { st with visited := st.visited.set! pc true }
   else
     st
 
@@ -214,7 +220,7 @@ def getSuccessors (insn : BpfInstr) (pc : Nat) (progSize : Nat) : List Nat :=
   match insn with
   | .Exit => []  -- no successors
   | .JumpAlways off =>
-      let target := (pc + 1).toInt64 + off.toInt64
+      let target := (pc + 1) + off.toInt
       if target >= 0 && target.toNat < progSize then
         [target.toNat]
       else
@@ -223,7 +229,7 @@ def getSuccessors (insn : BpfInstr) (pc : Nat) (progSize : Nat) : List Nat :=
   | .JumpImm _ _ _ off
   | .Jump32Reg _ _ _ off
   | .Jump32Imm _ _ _ off =>
-      let target := (pc + 1).toInt64 + off.toInt64
+      let target := (pc + 1) + off.toInt
       let successors := if next < progSize then [next] else []
       if target >= 0 && target.toNat < progSize then
         target.toNat :: successors
@@ -237,7 +243,7 @@ def isBackEdge (pc target : Nat) : Bool :=
   target <= pc
 
 -- Verify the program is a DAG (no loops)
-partial def checkDAG (prog : Array BpfInsn) (pc : Nat := 0) (visited : Array Bool := Array.mkArray prog.size false)
+partial def checkDAG (prog : Array BpfInsn) (pc : Nat := 0) (visited : Array Bool := Array.replicate prog.size false)
     : Except VerifyError Bool :=
   if pc >= prog.size then
     .ok true

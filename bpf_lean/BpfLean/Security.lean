@@ -207,6 +207,12 @@ structure SecurityPolicy where
 
   deriving Repr, Inhabited
 
+namespace SecurityPolicy
+
+def default : SecurityPolicy := {}
+
+end SecurityPolicy
+
 -- Verification error
 inductive VerifyError where
   | ProgramTooLarge : VerifyError
