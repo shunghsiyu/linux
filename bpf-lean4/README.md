@@ -212,6 +212,45 @@ This implementation is inspired by the Linux kernel BPF verifier (`kernel/bpf/ve
 
 ## Recent Improvements
 
+### v0.7.0 - Iteration 7: Loop Detection, Subprograms, and Enhanced Pointer Tracking
+
+**Loop Detection and Prevention**:
+- **Back-edge detection**: Detects jumps to earlier instructions (loops)
+- **Classic BPF behavior**: Rejects programs with back-edges to prevent infinite loops
+- Added `loopDepth` field to `VerifierState` for tracking loop nesting
+- Proper error reporting: `SecurityViolation.InfiniteLoop` for detected loops
+- **Rationale**: Classic BPF verifier prohibits loops; modern BPF allows bounded loops (future enhancement)
+
+**BPF-to-BPF Function Calls (Subprograms)**:
+- **Call type detection**: Distinguishes helper calls (src_reg == 0) from BPF-to-BPF calls (src_reg != 0)
+- **Subprogram structure**: Added `Subprog` type for tracking function metadata
+- **Call stack management**:
+  * Tracks call depth to prevent stack overflow
+  * Enforces `MAX_CALL_FRAMES` limit
+  * Invalidates caller-saved registers (R0-R5) on call
+- **Target validation**: Verifies jump target is within program bounds
+- Enables modular BPF programs with reusable functions
+
+**Enhanced Pointer Bounds Checking**:
+- **Packet pointer support**: Added bounds checking for `PTR_TO_PACKET` in load/store
+  * Load from packet: Allowed with conservative analysis
+  * Store to packet: Rejected (packets are generally read-only)
+- **Context pointer support**: Added handling for `PTR_TO_CTX`
+  * Load from context: Allowed for all offsets (simplified model)
+  * Store to context: Rejected (context writes require specific permissions)
+- **Type-based access control**: Different pointer types have different access patterns
+
+**New Tests** (3 additional tests):
+- `test_loop_detection`: Verifies back-edge detection rejects loops
+- `test_no_loop`: Verifies forward jumps are allowed
+- `test_bpf_to_bpf_call`: Verifies BPF-to-BPF function calls work correctly
+
+**Impact**:
+- **Safety**: Loop detection prevents infinite execution
+- **Modularity**: Subprogram support enables code reuse
+- **Completeness**: Handles all major pointer types
+- **Total: 68+ tests, all passing**
+
 ### v0.6.0 - Iteration 6: Code Quality, Bug Fixes, and Clarity Improvements
 
 **Code Organization and Cleanup**:

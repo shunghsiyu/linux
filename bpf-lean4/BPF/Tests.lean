@@ -488,6 +488,64 @@ def test_merge_program : Bool :=
   | VerifyResult.Valid => true
   | _ => false
 
+/-! ## Loop Detection Tests -/
+
+/-- Program with a simple loop (back-edge) -/
+def loop_program : Array Insn :=
+  #[
+    -- Loop: R0++, jump back
+    Insn.movImm Reg.R0 0,
+    Insn.addImm Reg.R0 1,  -- R0 += 1
+    Insn.ja (-2),          -- Jump back to addImm (creates loop)
+    Insn.exit
+  ]
+
+/-- Test: Loop detection rejects infinite loops -/
+def test_loop_detection : Bool :=
+  match verifyProgram loop_program with
+  | VerifyResult.Invalid SecurityViolation.InfiniteLoop _ => true
+  | _ => false
+
+/-- Program with forward jump only (no loop) -/
+def no_loop_program : Array Insn :=
+  #[
+    Insn.movImm Reg.R0 0,
+    Insn.jgt Reg.R0 Reg.R1 2,  -- Forward jump only
+    Insn.movImm Reg.R0 1,
+    Insn.exit,
+    Insn.movImm Reg.R0 2,
+    Insn.exit
+  ]
+
+/-- Test: Forward jumps are allowed -/
+def test_no_loop : Bool :=
+  match verifyProgram no_loop_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-! ## Subprogram (BPF-to-BPF Call) Tests -/
+
+/-- Program with BPF-to-BPF function call -/
+def bpf_to_bpf_call_program : Array Insn :=
+  #[
+    -- Main function
+    Insn.movImm Reg.R1 10,
+    -- Call subprogram at offset +3 (src_reg = 1 indicates BPF-to-BPF call)
+    { opcode := 0x85, dst_reg := Reg.R0, src_reg := Reg.R1, off := 0, imm := 2 },
+    Insn.exit,
+
+    -- Subprogram: R0 = R1 * 2
+    Insn.mov Reg.R0 Reg.R1,
+    Insn.add Reg.R0 Reg.R1,  -- R0 = R1 + R1 (i.e., R1 * 2)
+    Insn.exit
+  ]
+
+/-- Test: BPF-to-BPF calls verify -/
+def test_bpf_to_bpf_call : Bool :=
+  match verifyProgram bpf_to_bpf_call_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
 /-! ## Map Operation Tests -/
 
 /-- Test: Sample hash map has correct properties -/
@@ -726,6 +784,13 @@ def all_tests : List (String × Bool) := [
   ("merge_regstate_same_type", test_merge_regstate_same_type),
   ("merge_regstate_diff_type", test_merge_regstate_diff_type),
   ("merge_program", test_merge_program),
+
+  -- Loop detection tests
+  ("loop_detection", test_loop_detection),
+  ("no_loop", test_no_loop),
+
+  -- Subprogram tests
+  ("bpf_to_bpf_call", test_bpf_to_bpf_call),
 
   -- Map operation tests
   ("map_hash", test_map_hash),

@@ -18,6 +18,16 @@ import BPF.Security
 
 namespace BPF
 
+/-! ## Subprograms (BPF-to-BPF calls) -/
+
+/-- Subprogram information -/
+structure Subprog where
+  /-- Start instruction offset -/
+  start : Nat
+  /-- Whether this subprogram has been verified -/
+  verified : Bool
+  deriving Repr, BEq
+
 /-! ## Verifier State -/
 
 /-- Verifier state at a particular program point -/
@@ -30,6 +40,8 @@ structure VerifierState where
   stack : Stack
   /-- Call depth -/
   callDepth : Nat
+  /-- Loop nesting depth (for detecting loops) -/
+  loopDepth : Nat
   deriving Repr, BEq
 
 namespace VerifierState
@@ -45,6 +57,7 @@ def init : VerifierState :=
   , regs := regs
   , stack := Stack.empty
   , callDepth := 0
+  , loopDepth := 0
   }
 
 /-- Get register state -/
@@ -137,6 +150,7 @@ def mergeVerifierState (a b : VerifierState) : VerifierState :=
   , regs := regs
   , stack := a.stack  -- Conservative: use first state's stack
   , callDepth := max a.callDepth b.callDepth
+  , loopDepth := max a.loopDepth b.loopDepth
   }
 
 /-! ## Abstract Interpretation -/
@@ -784,6 +798,20 @@ def verifyLoadInsn (s : VerifierState) (insn : Insn) (size : MemSize) : VerifyIn
       let newState := s.setReg insn.dst_reg loadedValue
       VerifyInsnResult.Valid { newState with pc := s.pc + 1 }
 
+    | RegType.PtrToPacket =>
+      -- Packet access: bounds must be checked at runtime or via range analysis
+      -- For now, allow with conservative analysis
+      let loadedValue := RegState.scalar 0
+      let newState := s.setReg insn.dst_reg loadedValue
+      VerifyInsnResult.Valid { newState with pc := s.pc + 1 }
+
+    | RegType.PtrToCtx =>
+      -- Context access: allowed for specific offsets
+      -- Simplified: allow all context reads
+      let loadedValue := RegState.scalar 0
+      let newState := s.setReg insn.dst_reg loadedValue
+      VerifyInsnResult.Valid { newState with pc := s.pc + 1 }
+
     | _ =>
       VerifyInsnResult.Invalid (SecurityViolation.TypeMismatch srcReg.regType RegType.PtrToStack)
 
@@ -812,6 +840,14 @@ def verifyStoreInsn (s : VerifierState) (insn : Insn) (size : MemSize) : VerifyI
       -- Map store is valid (simplified)
       VerifyInsnResult.Valid { s with pc := s.pc + 1 }
 
+    | RegType.PtrToPacket =>
+      -- Packet writes are generally not allowed (read-only in most contexts)
+      VerifyInsnResult.Invalid (SecurityViolation.TypeMismatch dstReg.regType RegType.PtrToStack)
+
+    | RegType.PtrToCtx =>
+      -- Context writes may be allowed for specific fields (simplified: reject)
+      VerifyInsnResult.Invalid (SecurityViolation.TypeMismatch dstReg.regType RegType.PtrToStack)
+
     | _ =>
       VerifyInsnResult.Invalid (SecurityViolation.TypeMismatch dstReg.regType RegType.PtrToStack)
 
@@ -822,15 +858,34 @@ def verifyJumpInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : Verif
     -- EXIT instruction - program terminates
     VerifyInsnResult.Valid s
   else if insn.opcode == 0x85 then
-    -- CALL instruction to helper function
-    match HelperFunc.ofId? insn.imm.toNat with
-    | some helper =>
-      -- Apply helper function's abstract interpretation
-      let s' := abstractHelperCall s helper
-      VerifyInsnResult.Valid { s' with pc := s'.pc + 1 }
-    | none =>
-      -- Unknown helper function
-      VerifyInsnResult.Invalid SecurityViolation.InvalidInstruction
+    -- CALL instruction: could be helper or BPF-to-BPF call
+    if insn.src_reg.toNat == 0 then
+      -- src_reg == 0: Helper function call
+      match HelperFunc.ofId? insn.imm.toNat with
+      | some helper =>
+        -- Apply helper function's abstract interpretation
+        let s' := abstractHelperCall s helper
+        VerifyInsnResult.Valid { s' with pc := s'.pc + 1 }
+      | none =>
+        -- Unknown helper function
+        VerifyInsnResult.Invalid SecurityViolation.InvalidInstruction
+    else
+      -- src_reg != 0: BPF-to-BPF function call
+      -- Calculate target: pc + imm + 1
+      let target := s.pc.toInt + insn.imm.toInt + 1
+      if target < 0 || target.toNat >= prog.size then
+        VerifyInsnResult.Invalid (SecurityViolation.InvalidJump target)
+      else if s.callDepth >= MAX_CALL_FRAMES then
+        VerifyInsnResult.Invalid SecurityViolation.CallStackOverflow
+      else
+        -- Save return state and jump to subprogram
+        -- For simplicity, we invalidate caller-saved registers
+        let s' := s.invalidateCallerSaved
+        let s'' := { s' with
+          pc := target.toNat
+          callDepth := s'.callDepth + 1
+        }
+        VerifyInsnResult.Valid s''
   else if insn.off == 0 then
     -- Unconditional fall-through
     VerifyInsnResult.Valid { s with pc := s.pc + 1 }
@@ -840,19 +895,27 @@ def verifyJumpInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : Verif
     if target < 0 || target.toNat >= prog.size then
       VerifyInsnResult.Invalid (SecurityViolation.InvalidJump target)
     else
-      -- Get jump operation for range refinement
-      match getJmpOp insn with
-      | none =>
-        -- Unknown jump type, just branch without refinement
-        let trueBranch := { s with pc := target.toNat }
-        let falseBranch := { s with pc := s.pc + 1 }
-        VerifyInsnResult.Branch trueBranch falseBranch
+      -- Check for back-edge (loop)
+      let isBackEdge := target.toNat <= s.pc
 
-      | some JmpOp.JA =>
-        -- Unconditional jump
-        VerifyInsnResult.Valid { s with pc := target.toNat }
+      -- For now, reject loops (classic BPF behavior)
+      -- Modern BPF allows bounded loops, which could be added later
+      if isBackEdge then
+        VerifyInsnResult.Invalid SecurityViolation.InfiniteLoop
+      else
+        -- Get jump operation for range refinement
+        match getJmpOp insn with
+        | none =>
+          -- Unknown jump type, just branch without refinement
+          let trueBranch := { s with pc := target.toNat }
+          let falseBranch := { s with pc := s.pc + 1 }
+          VerifyInsnResult.Branch trueBranch falseBranch
 
-      | some jmpOp =>
+        | some JmpOp.JA =>
+          -- Unconditional jump
+          VerifyInsnResult.Valid { s with pc := target.toNat }
+
+        | some jmpOp =>
         -- Conditional jump: apply range refinement
         let dstReg := s.getReg insn.dst_reg
 
