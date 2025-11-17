@@ -69,11 +69,40 @@ make coerce_reg_to_size_sx_simple
 
 ### What is being verified?
 
+We verify two categories of functions:
+
+#### 1. Register State Tracking Functions
+
 For `coerce_reg_to_size_sx()`, we verify:
 
 **Property**: For any valid input register state containing value `x`, after calling `coerce_reg_to_size_sx(reg, size)`, the output register state must contain the sign-extended version of `x`.
 
 This ensures the verifier's abstract interpretation correctly tracks all possible values after a sign-extension instruction.
+
+For `scalar_min_max_add()`, we verify:
+
+**Property**: For any valid register states containing values `a` and `b`, after calling `scalar_min_max_add(dst, src)`, the output state must contain `a + b` (with overflow).
+
+#### 2. Tnum (Tristate Number) Operations
+
+Tnums are the foundation of BPF verifier's bit-level abstract interpretation. Each bit can be:
+- **0** - known to be zero
+- **1** - known to be one
+- **x** - unknown (could be 0 or 1)
+
+For `tnum_add(a, b)`, we verify:
+
+**Property**: For any concrete values `a_val` and `b_val` represented by tnums `a` and `b`, the sum `a_val + b_val` must be represented by `tnum_add(a, b)`.
+
+For `tnum_and(a, b)`, we verify:
+
+**Property**: For any concrete values `a_val` and `b_val` represented by tnums `a` and `b`, the bitwise AND `a_val & b_val` must be represented by `tnum_and(a, b)`.
+
+For `tnum_lshift(a, shift)`, we verify:
+
+**Property**: For any concrete value `a_val` represented by tnum `a`, the left shift `a_val << shift` must be represented by `tnum_lshift(a, shift)`.
+
+**Key Insight**: These properties ensure soundness - the abstract operations may over-approximate (be conservative), but they must never under-approximate (miss possible values).
 
 ### Verification harness structure
 

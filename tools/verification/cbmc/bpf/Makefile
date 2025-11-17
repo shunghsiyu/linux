@@ -70,9 +70,14 @@ NC := \033[0m # No Color
 help:
 	@echo "$(GREEN)CBMC Verification Targets for BPF Verifier$(NC)"
 	@echo ""
-	@echo "Available targets:"
+	@echo "Verifier Register Tracking:"
 	@echo "  coerce_reg_to_size_sx_verify - Verify sign extension tracking (unary op)"
 	@echo "  scalar_min_max_add_verify    - Verify addition tracking (binary op)"
+	@echo ""
+	@echo "Tnum (Tristate Number) Operations:"
+	@echo "  tnum_add_verify              - Verify tnum addition is sound"
+	@echo "  tnum_and_verify              - Verify tnum bitwise AND is sound"
+	@echo "  tnum_lshift_verify           - Verify tnum left shift is sound"
 	@echo ""
 	@echo "Each target has variants:"
 	@echo "  <target>_verify              - Run verification"
@@ -84,11 +89,11 @@ help:
 	@echo "  help                         - Show this help message"
 	@echo ""
 	@echo "Example workflow:"
-	@echo "  1. make coerce_reg_to_size_sx_verify   # Run verification"
+	@echo "  1. make tnum_add_verify             # Run verification"
 	@echo "  2. If it fails:"
-	@echo "     make coerce_reg_to_size_sx_trace    # Get counterexample"
+	@echo "     make tnum_add_trace              # Get counterexample"
 	@echo "  3. If counterexample is complex:"
-	@echo "     make coerce_reg_to_size_sx_simple   # Simplify for debugging"
+	@echo "     make tnum_add_simple             # Simplify for debugging"
 
 all: help
 
@@ -142,6 +147,72 @@ scalar_min_max_add_simple: scalar_min_max_add_verify.c $(BUILD_DIR)/verifier.got
 	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
 	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_add_simple_full.goto
 
+# tnum_add verification targets
+$(BUILD_DIR)/tnum_add_verify.goto: tnum_add_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_add verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_add_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_add_full.goto
+
+tnum_add_verify: $(BUILD_DIR)/tnum_add_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_add...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_add_full.goto
+
+tnum_add_trace: $(BUILD_DIR)/tnum_add_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_add_full.goto
+
+tnum_add_simple: tnum_add_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_add_verify.c -o $(BUILD_DIR)/tnum_add_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_add_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_add_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_add_simple_full.goto
+
+# tnum_and verification targets
+$(BUILD_DIR)/tnum_and_verify.goto: tnum_and_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_and verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_and_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_and_full.goto
+
+tnum_and_verify: $(BUILD_DIR)/tnum_and_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_and...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_and_full.goto
+
+tnum_and_trace: $(BUILD_DIR)/tnum_and_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_and_full.goto
+
+tnum_and_simple: tnum_and_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_and_verify.c -o $(BUILD_DIR)/tnum_and_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_and_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_and_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_and_simple_full.goto
+
+# tnum_lshift verification targets
+$(BUILD_DIR)/tnum_lshift_verify.goto: tnum_lshift_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_lshift verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_lshift_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_lshift_full.goto
+
+tnum_lshift_verify: $(BUILD_DIR)/tnum_lshift_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_lshift...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_lshift_full.goto
+
+tnum_lshift_trace: $(BUILD_DIR)/tnum_lshift_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_lshift_full.goto
+
+tnum_lshift_simple: tnum_lshift_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_lshift_verify.c -o $(BUILD_DIR)/tnum_lshift_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_lshift_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_lshift_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_lshift_simple_full.goto
+
 # Template for adding new verification targets
 # Replace FUNCNAME with your function name
 #
@@ -164,4 +235,7 @@ clean:
 	@echo "$(GREEN)Clean complete$(NC)"
 
 .PHONY: coerce_reg_to_size_sx_verify coerce_reg_to_size_sx_trace coerce_reg_to_size_sx_simple \
-        scalar_min_max_add_verify scalar_min_max_add_trace scalar_min_max_add_simple
+        scalar_min_max_add_verify scalar_min_max_add_trace scalar_min_max_add_simple \
+        tnum_add_verify tnum_add_trace tnum_add_simple \
+        tnum_and_verify tnum_and_trace tnum_and_simple \
+        tnum_lshift_verify tnum_lshift_trace tnum_lshift_simple
