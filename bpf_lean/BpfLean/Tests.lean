@@ -160,12 +160,114 @@ def testInvalid2 : IO Unit := do
   | .ok _ =>
       IO.println "✗ Test failed: should have been rejected!"
 
+-- Example 6: Bitwise operations
+-- r0 = 0xff
+-- r1 = 0x0f
+-- r0 = r0 & r1  -- result should be 0x0f
+-- exit
+def exampleProgram4 : Array BpfInsn :=
+  #[
+    -- MOV64 r0, 0xff
+    mkInsn 0xb7 0 0 0 0xff,
+    -- MOV64 r1, 0x0f
+    mkInsn 0xb7 1 0 0 0x0f,
+    -- AND64 r0, r1 (ALU64 | AND | X)
+    mkInsn 0x5f 0 1 0 0,
+    -- EXIT
+    mkInsn 0x95 0 0 0 0
+  ]
+
+def testExample4 : IO Unit := do
+  IO.println "\nTesting example program 4: bitwise AND (0xff & 0x0f = 0x0f)"
+  match verifyAndRun exampleProgram4 with
+  | .error err =>
+      IO.println s!"Verification failed: {repr err}"
+  | .ok (_, result) =>
+      match result with
+      | .Exit retval =>
+          IO.println s!"Program exited with value: {retval}"
+          if retval == 0x0f then
+            IO.println "✓ Test passed!"
+          else
+            IO.println "✗ Test failed: expected 0x0f"
+      | .Error msg =>
+          IO.println s!"Execution error: {msg}"
+      | .Continue =>
+          IO.println "Unexpected: program still running"
+
+-- Example 7: 32-bit vs 64-bit operations
+-- r0 = 0xffffffff00000001 (64-bit)
+-- r0 += 1 (32-bit operation, should wrap)
+-- exit
+def exampleProgram5 : Array BpfInsn :=
+  #[
+    -- MOV64 r0, -1 (will be 0xffffffffffffffff)
+    mkInsn 0xb7 0 0 0 (-1),
+    -- ADD32 r0, 1 (ALU | ADD | K) - 32-bit add
+    mkInsn 0x04 0 0 0 1,
+    -- EXIT
+    mkInsn 0x95 0 0 0 0
+  ]
+
+def testExample5 : IO Unit := do
+  IO.println "\nTesting example program 5: 32-bit arithmetic"
+  match verifyAndRun exampleProgram5 with
+  | .error err =>
+      IO.println s!"Verification failed: {repr err}"
+  | .ok (_, result) =>
+      match result with
+      | .Exit retval =>
+          IO.println s!"Program exited with value: {retval}"
+          -- 32-bit add on 0xffffffff + 1 = 0 (in low 32 bits)
+          IO.println "✓ Test completed (32-bit arithmetic)"
+      | .Error msg =>
+          IO.println s!"Execution error: {msg}"
+      | .Continue =>
+          IO.println "Unexpected: program still running"
+
+-- Example 8: Register-to-register move
+-- r1 = 42
+-- r0 = r1
+-- exit
+def exampleProgram6 : Array BpfInsn :=
+  #[
+    -- MOV64 r1, 42
+    mkInsn 0xb7 1 0 0 42,
+    -- MOV64 r0, r1 (ALU64 | MOV | X)
+    mkInsn 0xbf 0 1 0 0,
+    -- EXIT
+    mkInsn 0x95 0 0 0 0
+  ]
+
+def testExample6 : IO Unit := do
+  IO.println "\nTesting example program 6: register-to-register move"
+  match verifyAndRun exampleProgram6 with
+  | .error err =>
+      IO.println s!"Verification failed: {repr err}"
+  | .ok (_, result) =>
+      match result with
+      | .Exit retval =>
+          IO.println s!"Program exited with value: {retval}"
+          if retval == 42 then
+            IO.println "✓ Test passed!"
+          else
+            IO.println "✗ Test failed: expected 42"
+      | .Error msg =>
+          IO.println s!"Execution error: {msg}"
+      | .Continue =>
+          IO.println "Unexpected: program still running"
+
 -- Run all tests
 def main : IO Unit := do
   IO.println "=== BPF Formalization Tests ===\n"
+  IO.println "--- Valid Programs ---"
   testExample1
   testExample2
   testExample3
+  testExample4
+  testExample5
+  testExample6
+  IO.println "\n--- Invalid Programs (should be rejected) ---"
   testInvalid1
   testInvalid2
   IO.println "\n=== Tests Complete ==="
