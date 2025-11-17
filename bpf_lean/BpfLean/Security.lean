@@ -99,12 +99,57 @@ def add (a b : AbstractValue) : AbstractValue :=
   , s32_max := a.s32_max + b.s32_max
   }
 
--- Placeholder for other operations (would need proper abstract interpretation)
-def sub (a b : AbstractValue) : AbstractValue := unknown
-def mul (a b : AbstractValue) : AbstractValue := unknown
-def div (a b : AbstractValue) : AbstractValue := unknown
-def bitwiseOr (a b : AbstractValue) : AbstractValue := unknown
-def bitwiseAnd (a b : AbstractValue) : AbstractValue := unknown
+-- Abstract subtraction
+def sub (a b : AbstractValue) : AbstractValue :=
+  { known_mask := a.known_mask &&& b.known_mask &&& ~~~(a.known_value ^^^ ~~~b.known_value)
+  , known_value := a.known_value - b.known_value
+  , umin := if a.umin >= b.umax then a.umin - b.umax else 0
+  , umax := a.umax - b.umin  -- may overflow, simplified
+  , smin := a.smin - b.smax
+  , smax := a.smax - b.smin
+  , u32_min := if a.u32_min >= b.u32_max then a.u32_min - b.u32_max else 0
+  , u32_max := a.u32_max - b.u32_min
+  , s32_min := a.s32_min - b.s32_max
+  , s32_max := a.s32_max - b.s32_min
+  }
+
+-- Abstract multiplication (simplified - loses precision)
+def mul (_a _b : AbstractValue) : AbstractValue := unknown
+
+-- Abstract division (simplified)
+def div (_a _b : AbstractValue) : AbstractValue := unknown
+
+-- Bitwise OR
+def bitwiseOr (a b : AbstractValue) : AbstractValue :=
+  let known := a.known_mask &&& b.known_mask
+  let value := a.known_value ||| b.known_value
+  { known_mask := known
+  , known_value := value
+  , umin := a.umin ||| b.umin  -- conservative approximation
+  , umax := a.umax ||| b.umax
+  , smin := -9223372036854775808  -- Int64.min
+  , smax := 9223372036854775807   -- Int64.max
+  , u32_min := a.u32_min ||| b.u32_min
+  , u32_max := a.u32_max ||| b.u32_max
+  , s32_min := -2147483648  -- Int32.min
+  , s32_max := 2147483647   -- Int32.max
+  }
+
+-- Bitwise AND
+def bitwiseAnd (a b : AbstractValue) : AbstractValue :=
+  let known := a.known_mask &&& b.known_mask
+  let value := a.known_value &&& b.known_value
+  { known_mask := known
+  , known_value := value
+  , umin := 0  -- conservative
+  , umax := min a.umax b.umax  -- AND can only make values smaller
+  , smin := -9223372036854775808  -- Int64.min
+  , smax := 9223372036854775807   -- Int64.max
+  , u32_min := 0
+  , u32_max := min a.u32_max b.u32_max
+  , s32_min := -2147483648  -- Int32.min
+  , s32_max := 2147483647   -- Int32.max
+  }
 
 end AbstractValue
 

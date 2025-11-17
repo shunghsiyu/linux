@@ -99,6 +99,18 @@ def checkMemoryAccess (reg : AbstractReg) : Bool :=
   | .PtrToCtx => true
   | _ => false
 
+-- Check stack access bounds
+def checkStackAccess (reg : AbstractReg) (off : Int16) (size : BpfSize) : Bool :=
+  match reg.regType with
+  | .PtrToStack stackOff =>
+      -- Stack grows downward from 0
+      let accessOff := stackOff + off.toInt
+      let accessSize := size.toNat
+      -- Check that access is within stack bounds [-MAX_BPF_STACK, 0)
+      accessOff >= -(MAX_BPF_STACK : Int) &&
+      accessOff + accessSize <= 0
+  | _ => true  -- Not stack access, other checks apply
+
 -- Verify a load instruction
 def verifyLoad (st : VerifierState) (sz : BpfSize) (dst src : BpfReg) (off : Int16)
     : Except VerifyError VerifierState :=
@@ -109,6 +121,9 @@ def verifyLoad (st : VerifierState) (sz : BpfSize) (dst src : BpfReg) (off : Int
     .error (.UninitializedRegister 0 src)
   else if !checkMemoryAccess srcReg then
     .error (.InvalidMemoryAccess 0)
+  -- Check stack bounds if accessing stack
+  else if !checkStackAccess srcReg off sz then
+    .error (.StackOutOfBounds 0)
   else
     -- After load, destination becomes a scalar
     let regs' := st.regs.write dst AbstractReg.scalarUnknown
@@ -127,6 +142,9 @@ def verifyStore (st : VerifierState) (sz : BpfSize) (dst src : BpfReg) (off : In
     .error (.UninitializedRegister 0 src)
   else if !checkMemoryAccess dstReg then
     .error (.InvalidMemoryAccess 0)
+  -- Check stack bounds if accessing stack
+  else if !checkStackAccess dstReg off sz then
+    .error (.StackOutOfBounds 0)
   else
     .ok st
 
