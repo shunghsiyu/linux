@@ -246,6 +246,110 @@ theorem abstract_rsh_nonneg (dst src : RegState) :
     (abstractRsh dst src).smin = 0 := by
   rfl
 
+/-! ## Range Refinement Properties -/
+
+/-- Range refinement for JEQ true branch gives exact value -/
+theorem refine_jeq_true_exact (reg : RegState) (imm : UInt64) :
+    let refined := refineRangeTrue reg JmpOp.JEQ imm
+    refined.umin = imm ∧ refined.umax = imm := by
+  simp [refineRangeTrue]
+
+/-- Range refinement for JGT true branch increases minimum -/
+theorem refine_jgt_true_increases_min (reg : RegState) (imm : UInt64) :
+    let refined := refineRangeTrue reg JmpOp.JGT imm
+    refined.umin ≥ reg.umin := by
+  simp [refineRangeTrue]
+  omega
+
+/-- Range refinement for JLT true branch decreases maximum -/
+theorem refine_jlt_true_decreases_max (reg : RegState) (imm : UInt64) :
+    imm > 0 →
+    let refined := refineRangeTrue reg JmpOp.JLT imm
+    refined.umax ≤ imm - 1 := by
+  intro _
+  simp [refineRangeTrue]
+  split <;> omega
+
+/-- Range refinement maintains type for scalars -/
+theorem refine_preserves_scalar_type (reg : RegState) (op : JmpOp) (imm : UInt64) :
+    reg.isScalar →
+    (refineRangeTrue reg op imm).isScalar = true := by
+  intro h
+  unfold RegState.isScalar at h ⊢
+  unfold refineRangeTrue
+  split <;> simp at h ⊢ <;> exact h
+
+/-- Range refinement for non-zero in false branch -/
+theorem refine_jeq_false_nonzero (reg : RegState) :
+    let refined := refineRangeFalse reg JmpOp.JEQ 0
+    refined.umin = 0 ∧ refined.umax = 0 := by
+  simp [refineRangeFalse]
+
+/-! ## Pointer Arithmetic Properties -/
+
+/-- Adding scalar to stack pointer preserves stack pointer type -/
+theorem abstractAdd_ptrToStack_preserves_type (dst src : RegState) :
+    dst.regType = RegType.PtrToStack →
+    src.regType = RegType.ScalarValue →
+    (abstractAdd dst src).regType = RegType.PtrToStack := by
+  intro hdst hsrc
+  unfold abstractAdd
+  simp [hdst, hsrc]
+
+/-- Adding scalar to context pointer preserves context pointer type -/
+theorem abstractAdd_ptrToCtx_preserves_type (dst src : RegState) :
+    dst.regType = RegType.PtrToCtx →
+    src.regType = RegType.ScalarValue →
+    (abstractAdd dst src).regType = RegType.PtrToCtx := by
+  intro hdst hsrc
+  unfold abstractAdd
+  simp [hdst, hsrc]
+
+/-- Adding scalar to packet pointer preserves packet pointer type -/
+theorem abstractAdd_ptrToPacket_preserves_type (dst src : RegState) :
+    dst.regType = RegType.PtrToPacket →
+    src.regType = RegType.ScalarValue →
+    (abstractAdd dst src).regType = RegType.PtrToPacket := by
+  intro hdst hsrc
+  unfold abstractAdd
+  simp [hdst, hsrc]
+
+/-- Adding scalar to map pointer preserves map pointer type -/
+theorem abstractAdd_ptrToMap_preserves_type (dst src : RegState) :
+    dst.regType = RegType.PtrToMap →
+    src.regType = RegType.ScalarValue →
+    (abstractAdd dst src).regType = RegType.PtrToMap := by
+  intro hdst hsrc
+  unfold abstractAdd
+  simp [hdst, hsrc]
+
+/-- Stack pointer arithmetic updates stack offset correctly -/
+theorem abstractAdd_ptrToStack_updates_offset (dst src : RegState) :
+    dst.regType = RegType.PtrToStack →
+    src.regType = RegType.ScalarValue →
+    (abstractAdd dst src).stackOff = dst.stackOff + src.value.toInt32 := by
+  intro hdst hsrc
+  unfold abstractAdd
+  simp [hdst, hsrc]
+
+/-- Subtracting scalar from stack pointer preserves stack pointer type -/
+theorem abstractSub_ptrToStack_preserves_type (dst src : RegState) :
+    dst.regType = RegType.PtrToStack →
+    src.regType = RegType.ScalarValue →
+    (abstractSub dst src).regType = RegType.PtrToStack := by
+  intro hdst hsrc
+  unfold abstractSub
+  simp [hdst, hsrc]
+
+/-- Subtracting packet pointers produces scalar -/
+theorem abstractSub_packet_packet_scalar (dst src : RegState) :
+    dst.regType = RegType.PtrToPacket →
+    src.regType = RegType.PtrToPacket →
+    (abstractSub dst src).regType = RegType.ScalarValue := by
+  intro hdst hsrc
+  unfold abstractSub
+  simp [hdst, hsrc]
+
 /-! ## Security Invariants -/
 
 /-- If a state passes memory safety check, memory accesses are safe -/

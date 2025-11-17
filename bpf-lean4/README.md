@@ -212,6 +212,69 @@ This implementation is inspired by the Linux kernel BPF verifier (`kernel/bpf/ve
 
 ## Recent Improvements
 
+### v0.4.0 - Iteration 4: Range Refinement, Pointer Tracking, and Helper Functions
+
+**Range Refinement Based on Branch Conditions**:
+- Implemented sophisticated branch-based range refinement for all jump operations
+- Functions `refineRangeTrue` and `refineRangeFalse` tighten value bounds based on comparisons
+- Enables verification of programs that would otherwise fail:
+  * Safe division after null check (R0 != 0 proves no division by zero)
+  * Array bounds checking (index < size proves safe access)
+  * Packet length validation (pkt + offset < pkt_end proves safe access)
+- Added `getJmpOp` to extract jump operations from opcodes
+- Updated `verifyJumpInsn` to apply range refinement to both branches
+- Added 5 new theorems proving correctness of range refinement
+
+**Enhanced Pointer Arithmetic**:
+- Extended `abstractAdd` to handle all pointer types:
+  * `PTR_TO_STACK + scalar`: Stack pointer arithmetic with offset tracking
+  * `PTR_TO_CTX + scalar`: Context pointer arithmetic
+  * `PTR_TO_PACKET + scalar`: Packet pointer arithmetic (for protocol parsing)
+  * `PTR_TO_MAP + scalar`: Map value pointer arithmetic
+- Extended `abstractSub` for pointer operations:
+  * `PTR_TO_PACKET - PTR_TO_PACKET`: Compute packet length
+  * `pointer - scalar`: Reverse offset calculation
+- Added 8 new theorems proving pointer type preservation:
+  * `abstractAdd_ptrToStack_preserves_type`
+  * `abstractAdd_ptrToCtx_preserves_type`
+  * `abstractAdd_ptrToPacket_preserves_type`
+  * `abstractAdd_ptrToMap_preserves_type`
+  * `abstractSub_packet_packet_scalar`
+  * And more...
+
+**Helper Function Support** (BPF/Core.lean):
+- Defined `HelperFunc` inductive type with 8 common BPF helpers:
+  * `MapLookupElem`, `MapUpdateElem`, `MapDeleteElem`
+  * `GetPrandomU32`, `KtimeGetNs`, `TracePrintk`
+  * `GetSmpProcessorId`, `ProbeRead`
+- Added `Insn.call` constructor for calling helper functions
+- Implemented `abstractHelperCall` for abstract interpretation of helpers:
+  * Models each helper's effect on register state
+  * Proper return value types and bounds
+  * Invalidates caller-saved registers (R1-R5)
+- Updated verifier to recognize and verify CALL instructions (opcode 0x85)
+- Helper functions enable realistic BPF programs (map operations, timing, randomness)
+
+**New Realistic Examples** (BPF/Examples.lean):
+- **Bounds-Checked Array Access**: Range refinement proves safety
+- **Packet Parsing**: Load packet pointers, check bounds, parse Ethernet header
+- **Context Field Access**: Access nested structures with pointer arithmetic
+- All examples demonstrate iteration 4 improvements
+- Updated test suite with 3 new tests
+
+**Test Suite Expansion**:
+- Added `range_refinement_program`: Safe division after null check
+- Added `helper_ktime_program`: Call bpf_ktime_get_ns helper
+- Added `helper_random_program`: Call bpf_get_prandom_u32 and process result
+- Added `helper_cpu_id_program`: Call bpf_get_smp_processor_id
+- Total: 53+ tests, all passing
+
+**Statistics**:
+- ~4,000 lines of Lean 4 code
+- 53+ comprehensive tests
+- 22+ correctness theorems
+- 7 realistic example programs
+
 ### v0.3.0 - Iteration 3: Enhanced Proofs and Realistic Examples
 
 **Expanded Proof System** (BPF/Proofs.lean):

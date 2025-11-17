@@ -74,10 +74,10 @@ end VerifierState
 
 /-- Abstract addition of two register states -/
 def abstractAdd (dst src : RegState) : RegState :=
-  -- Handle pointer + scalar addition (for stack pointer arithmetic)
+  -- Handle pointer + scalar addition (pointer arithmetic)
   match dst.regType, src.regType with
   | RegType.PtrToStack, RegType.ScalarValue =>
-    -- Pointer + offset: preserve pointer type, update stack offset
+    -- Stack pointer + offset: preserve pointer type, update stack offset
     { regType := RegType.PtrToStack
     , value := dst.value + src.value
     , tnum := TNum.unknown
@@ -86,6 +86,40 @@ def abstractAdd (dst src : RegState) : RegState :=
     , umin := UInt64.min
     , umax := UInt64.max
     , stackOff := dst.stackOff + src.value.toInt32  -- Track offset change
+    }
+  | RegType.PtrToCtx, RegType.ScalarValue =>
+    -- Context pointer + offset: preserve pointer type
+    { regType := RegType.PtrToCtx
+    , value := dst.value + src.value
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := 0
+    }
+  | RegType.PtrToPacket, RegType.ScalarValue =>
+    -- Packet pointer + offset: preserve pointer type
+    -- This is common in packet parsing: pkt_ptr + 14 to skip Ethernet header
+    { regType := RegType.PtrToPacket
+    , value := dst.value + src.value
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := 0
+    }
+  | RegType.PtrToMap, RegType.ScalarValue =>
+    -- Map value pointer + offset: preserve pointer type
+    { regType := RegType.PtrToMap
+    , value := dst.value + src.value
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := 0
     }
   | _, _ =>
     -- Scalar + scalar: normal arithmetic
@@ -104,26 +138,73 @@ def abstractAdd (dst src : RegState) : RegState :=
 /-- Abstract subtraction of two register states -/
 def abstractSub (dst src : RegState) : RegState :=
   let concrete := dst.value - src.value
-  -- For subtraction: dst - src
-  -- smin = dst.smin - src.smax (most negative result)
-  -- smax = dst.smax - src.smin (most positive result)
-  let smin := dst.smin - src.smax
-  let smax := dst.smax - src.smin
-  -- For unsigned: be conservative due to wrap-around
-  let umin := if dst.umin.toNat < src.umax.toNat then 0 else dst.umin - src.umax
-  let umax := dst.umax
-  { regType := RegType.ScalarValue
-  , value := concrete
-  , tnum := if dst.tnum.isConst && src.tnum.isConst then
-              TNum.const concrete
-            else
-              TNum.unknown
-  , smin := smin
-  , smax := smax
-  , umin := umin
-  , umax := umax
-  , stackOff := 0
-  }
+  match dst.regType, src.regType with
+  | RegType.PtrToStack, RegType.ScalarValue =>
+    -- Stack pointer - offset: preserve pointer type, update stack offset
+    { regType := RegType.PtrToStack
+    , value := concrete
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := dst.stackOff - src.value.toInt32
+    }
+  | RegType.PtrToCtx, RegType.ScalarValue =>
+    -- Context pointer - offset
+    { regType := RegType.PtrToCtx
+    , value := concrete
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := 0
+    }
+  | RegType.PtrToPacket, RegType.ScalarValue =>
+    -- Packet pointer - offset
+    { regType := RegType.PtrToPacket
+    , value := concrete
+    , tnum := TNum.unknown
+    , smin := Int64.min
+    , smax := Int64.max
+    , umin := UInt64.min
+    , umax := UInt64.max
+    , stackOff := 0
+    }
+  | RegType.PtrToPacket, RegType.PtrToPacket =>
+    -- Packet pointer - packet pointer = scalar offset
+    -- This is used to compute packet length: packet_end - packet_start
+    let smin := dst.smin - src.smax
+    let smax := dst.smax - src.smin
+    let umin := if dst.umin.toNat < src.umax.toNat then 0 else dst.umin - src.umax
+    { regType := RegType.ScalarValue
+    , value := concrete
+    , tnum := TNum.unknown
+    , smin := smin
+    , smax := smax
+    , umin := umin
+    , umax := dst.umax
+    , stackOff := 0
+    }
+  | _, _ =>
+    -- Scalar - scalar: normal arithmetic
+    let smin := dst.smin - src.smax
+    let smax := dst.smax - src.smin
+    let umin := if dst.umin.toNat < src.umax.toNat then 0 else dst.umin - src.umax
+    let umax := dst.umax
+    { regType := RegType.ScalarValue
+    , value := concrete
+    , tnum := if dst.tnum.isConst && src.tnum.isConst then
+                TNum.const concrete
+              else
+                TNum.unknown
+    , smin := smin
+    , smax := smax
+    , umin := umin
+    , umax := umax
+    , stackOff := 0
+    }
 
 /-- Abstract bitwise AND -/
 def abstractAnd (dst src : RegState) : RegState :=
@@ -270,6 +351,80 @@ def abstractAluOp (op : AluOp) (dst src : RegState) : RegState :=
     }
   | _ => RegState.scalar 0  -- ARSH, END: simplified
 
+/-! ## Helper Function Abstract Interpretation -/
+
+/-- Abstract interpretation of a helper function call.
+    Models the effect of helper functions on register state.
+-/
+def abstractHelperCall (s : VerifierState) (helper : HelperFunc) : VerifierState :=
+  match helper with
+  | HelperFunc.MapLookupElem =>
+    -- Returns pointer to map value (or NULL)
+    -- R0 = map_lookup(R1 = map_ptr, R2 = key_ptr)
+    let r0 := RegState.mk RegType.PtrToMap 0 TNum.unknown Int64.min Int64.max 0 UInt64.max 0
+    s.setReg Reg.R0 r0
+      |>.invalidateCallerSaved  -- Invalidate R1-R5
+
+  | HelperFunc.MapUpdateElem =>
+    -- Returns 0 on success, negative on error
+    -- R0 = map_update(R1 = map_ptr, R2 = key_ptr, R3 = value_ptr, R4 = flags)
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with smin := -1, smax := 0, umin := 0 }
+      |>.invalidateCallerSaved
+
+  | HelperFunc.MapDeleteElem =>
+    -- Returns 0 on success, negative on error
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with smin := -1, smax := 0, umin := 0 }
+      |>.invalidateCallerSaved
+
+  | HelperFunc.GetPrandomU32 =>
+    -- Returns a random u32 value
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with
+        umin := 0
+        umax := UInt64.ofNat (UInt32.size - 1)
+        smin := 0
+        smax := Int64.ofNat (UInt32.size - 1)
+        tnum := TNum.unknown
+      }
+      |>.invalidateCallerSaved
+
+  | HelperFunc.KtimeGetNs =>
+    -- Returns current time in nanoseconds (u64)
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with
+        umin := 0
+        umax := UInt64.max
+        smin := 0
+        smax := Int64.max
+        tnum := TNum.unknown
+      }
+      |>.invalidateCallerSaved
+
+  | HelperFunc.TracePrintk =>
+    -- Returns number of bytes written
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with smin := 0, smax := Int64.max, umin := 0 }
+      |>.invalidateCallerSaved
+
+  | HelperFunc.GetSmpProcessorId =>
+    -- Returns current CPU ID (bounded by number of CPUs)
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with
+        umin := 0
+        umax := 4096  -- Conservative upper bound on CPU count
+        smin := 0
+        smax := 4096
+      }
+      |>.invalidateCallerSaved
+
+  | HelperFunc.ProbeRead =>
+    -- Returns 0 on success, negative on error
+    let r0 := RegState.scalar 0
+    s.setReg Reg.R0 { r0 with smin := -1, smax := 0, umin := 0 }
+      |>.invalidateCallerSaved
+
 /-! ## Instruction Verification -/
 
 /-- Verification result for a single instruction -/
@@ -278,6 +433,156 @@ inductive VerifyInsnResult : Type where
   | Invalid : SecurityViolation → VerifyInsnResult
   | Branch : VerifierState → VerifierState → VerifyInsnResult  -- true branch, false branch
   deriving Repr
+
+/-! ## Range Refinement -/
+
+/-- Refine register bounds based on a comparison that evaluated to true.
+    This is a key verifier optimization that makes bounds tracking precise.
+
+    For example:
+    - if (R0 < 100) becomes true → refine R0.umax to 99
+    - if (R0 >= 10) becomes true → refine R0.umin to 10
+-/
+def refineRangeTrue (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
+  match op with
+  | JmpOp.JEQ =>
+    -- R == imm, so R is exactly imm
+    { reg with
+      value := imm
+      tnum := TNum.const imm
+      smin := imm.toInt64
+      smax := imm.toInt64
+      umin := imm
+      umax := imm
+    }
+  | JmpOp.JNE =>
+    -- R != imm, can't refine much (would need more complex tracking)
+    reg
+  | JmpOp.JGT =>
+    -- R > imm (unsigned), so R >= imm + 1
+    let newMin := imm + 1
+    { reg with
+      umin := max reg.umin newMin
+      -- Also try to refine signed bounds
+      smin := if newMin.toInt64 > reg.smin then newMin.toInt64 else reg.smin
+    }
+  | JmpOp.JGE =>
+    -- R >= imm (unsigned)
+    { reg with
+      umin := max reg.umin imm
+      smin := if imm.toInt64 > reg.smin then imm.toInt64 else reg.smin
+    }
+  | JmpOp.JLT =>
+    -- R < imm (unsigned), so R <= imm - 1
+    let newMax := if imm > 0 then imm - 1 else UInt64.max
+    { reg with
+      umax := min reg.umax newMax
+    }
+  | JmpOp.JLE =>
+    -- R <= imm (unsigned)
+    { reg with
+      umax := min reg.umax imm
+    }
+  | JmpOp.JSGT =>
+    -- R > imm (signed), so R >= imm + 1
+    let newMin := imm.toInt64 + 1
+    { reg with
+      smin := max reg.smin newMin
+    }
+  | JmpOp.JSGE =>
+    -- R >= imm (signed)
+    { reg with
+      smin := max reg.smin imm.toInt64
+    }
+  | JmpOp.JSLT =>
+    -- R < imm (signed), so R <= imm - 1
+    let newMax := imm.toInt64 - 1
+    { reg with
+      smax := min reg.smax newMax
+    }
+  | JmpOp.JSLE =>
+    -- R <= imm (signed)
+    { reg with
+      smax := min reg.smax imm.toInt64
+    }
+  | _ => reg
+
+/-- Refine register bounds for the false branch (condition was false) -/
+def refineRangeFalse (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
+  match op with
+  | JmpOp.JEQ =>
+    -- R != imm (can't refine precisely without complex tracking)
+    reg
+  | JmpOp.JNE =>
+    -- R == imm
+    { reg with
+      value := imm
+      tnum := TNum.const imm
+      smin := imm.toInt64
+      smax := imm.toInt64
+      umin := imm
+      umax := imm
+    }
+  | JmpOp.JGT =>
+    -- !(R > imm) means R <= imm
+    { reg with
+      umax := min reg.umax imm
+    }
+  | JmpOp.JGE =>
+    -- !(R >= imm) means R < imm, so R <= imm - 1
+    let newMax := if imm > 0 then imm - 1 else UInt64.max
+    { reg with
+      umax := min reg.umax newMax
+    }
+  | JmpOp.JLT =>
+    -- !(R < imm) means R >= imm
+    { reg with
+      umin := max reg.umin imm
+    }
+  | JmpOp.JLE =>
+    -- !(R <= imm) means R > imm, so R >= imm + 1
+    let newMin := imm + 1
+    { reg with
+      umin := max reg.umin newMin
+    }
+  | JmpOp.JSGT =>
+    -- !(R > imm) means R <= imm (signed)
+    { reg with
+      smax := min reg.smax imm.toInt64
+    }
+  | JmpOp.JSGE =>
+    -- !(R >= imm) means R < imm (signed)
+    { reg with
+      smax := min reg.smax (imm.toInt64 - 1)
+    }
+  | JmpOp.JSLT =>
+    -- !(R < imm) means R >= imm (signed)
+    { reg with
+      smin := max reg.smin imm.toInt64
+    }
+  | JmpOp.JSLE =>
+    -- !(R <= imm) means R > imm (signed)
+    { reg with
+      smin := max reg.smin (imm.toInt64 + 1)
+    }
+  | _ => reg
+
+/-- Extract jump operation from opcode -/
+def getJmpOp (insn : Insn) : Option JmpOp :=
+  let opBits := insn.opcode.toNat &&& 0xf0
+  match opBits with
+  | 0x00 => some JmpOp.JA
+  | 0x10 => some JmpOp.JEQ
+  | 0x50 => some JmpOp.JNE
+  | 0x20 => some JmpOp.JGT
+  | 0xa0 => some JmpOp.JLT
+  | 0x30 => some JmpOp.JGE
+  | 0xb0 => some JmpOp.JLE
+  | 0x60 => some JmpOp.JSGT
+  | 0x70 => some JmpOp.JSGE
+  | 0xc0 => some JmpOp.JSLT
+  | 0xd0 => some JmpOp.JSLE
+  | _ => none
 
 /-- Verify an ALU instruction -/
 def verifyAluInsn (s : VerifierState) (insn : Insn) : VerifyInsnResult :=
@@ -376,6 +681,16 @@ def verifyJumpInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : Verif
   if insn.opcode == 0x95 then
     -- EXIT instruction - program terminates
     VerifyInsnResult.Valid s
+  else if insn.opcode == 0x85 then
+    -- CALL instruction to helper function
+    match HelperFunc.ofId? insn.imm.toNat with
+    | some helper =>
+      -- Apply helper function's abstract interpretation
+      let s' := abstractHelperCall s helper
+      VerifyInsnResult.Valid { s' with pc := s'.pc + 1 }
+    | none =>
+      -- Unknown helper function
+      VerifyInsnResult.Invalid SecurityViolation.InvalidInstruction
   else if insn.off == 0 then
     -- Unconditional fall-through
     VerifyInsnResult.Valid { s with pc := s.pc + 1 }
@@ -385,10 +700,37 @@ def verifyJumpInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : Verif
     if target < 0 || target.toNat >= prog.size then
       VerifyInsnResult.Invalid (SecurityViolation.InvalidJump target)
     else
-      -- Branch: both true and false paths
-      let trueBranch := { s with pc := target.toNat }
-      let falseBranch := { s with pc := s.pc + 1 }
-      VerifyInsnResult.Branch trueBranch falseBranch
+      -- Get jump operation for range refinement
+      match getJmpOp insn with
+      | none =>
+        -- Unknown jump type, just branch without refinement
+        let trueBranch := { s with pc := target.toNat }
+        let falseBranch := { s with pc := s.pc + 1 }
+        VerifyInsnResult.Branch trueBranch falseBranch
+
+      | some JmpOp.JA =>
+        -- Unconditional jump
+        VerifyInsnResult.Valid { s with pc := target.toNat }
+
+      | some jmpOp =>
+        -- Conditional jump: apply range refinement
+        let dstReg := s.getReg insn.dst_reg
+
+        -- Get comparison value (immediate or register)
+        let cmpVal := if insn.isImmediate then
+          insn.imm.toUInt64
+        else
+          (s.getReg insn.src_reg).value
+
+        -- Refine ranges for both branches
+        let dstRegTrue := refineRangeTrue dstReg jmpOp cmpVal
+        let dstRegFalse := refineRangeFalse dstReg jmpOp cmpVal
+
+        -- Create refined states
+        let trueBranch := (s.setReg insn.dst_reg dstRegTrue).incPC.jump insn.off.toInt
+        let falseBranch := (s.setReg insn.dst_reg dstRegFalse).incPC
+
+        VerifyInsnResult.Branch trueBranch falseBranch
 
 /-- Verify a single instruction -/
 def verifyInsn (s : VerifierState) (insn : Insn) (prog : Array Insn) : VerifyInsnResult :=

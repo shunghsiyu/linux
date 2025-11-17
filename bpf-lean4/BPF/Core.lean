@@ -147,6 +147,61 @@ inductive InsnSrc : Type where
   | X : InsnSrc  -- source register
   deriving Repr, BEq, DecidableEq
 
+/-! ## BPF Helper Functions -/
+
+/-- BPF helper function IDs.
+    These are kernel-provided functions that BPF programs can call.
+    Based on include/uapi/linux/bpf.h
+-/
+inductive HelperFunc : Type where
+  | MapLookupElem     : HelperFunc  -- bpf_map_lookup_elem
+  | MapUpdateElem     : HelperFunc  -- bpf_map_update_elem
+  | MapDeleteElem     : HelperFunc  -- bpf_map_delete_elem
+  | GetPrandomU32     : HelperFunc  -- bpf_get_prandom_u32
+  | KtimeGetNs        : HelperFunc  -- bpf_ktime_get_ns
+  | TracePrintk       : HelperFunc  -- bpf_trace_printk
+  | GetSmpProcessorId : HelperFunc  -- bpf_get_smp_processor_id
+  | ProbeRead         : HelperFunc  -- bpf_probe_read
+  deriving Repr, BEq, DecidableEq
+
+namespace HelperFunc
+
+/-- Convert helper function to ID number -/
+def toId : HelperFunc → Nat
+  | MapLookupElem     => 1
+  | MapUpdateElem     => 2
+  | MapDeleteElem     => 3
+  | GetPrandomU32     => 7
+  | KtimeGetNs        => 5
+  | TracePrintk       => 6
+  | GetSmpProcessorId => 8
+  | ProbeRead         => 4
+
+/-- Get helper function from ID -/
+def ofId? : Nat → Option HelperFunc
+  | 1 => some MapLookupElem
+  | 2 => some MapUpdateElem
+  | 3 => some MapDeleteElem
+  | 4 => some ProbeRead
+  | 5 => some KtimeGetNs
+  | 6 => some TracePrintk
+  | 7 => some GetPrandomU32
+  | 8 => some GetSmpProcessorId
+  | _ => none
+
+/-- Get helper function name -/
+def name : HelperFunc → String
+  | MapLookupElem     => "bpf_map_lookup_elem"
+  | MapUpdateElem     => "bpf_map_update_elem"
+  | MapDeleteElem     => "bpf_map_delete_elem"
+  | GetPrandomU32     => "bpf_get_prandom_u32"
+  | KtimeGetNs        => "bpf_ktime_get_ns"
+  | TracePrintk       => "bpf_trace_printk"
+  | GetSmpProcessorId => "bpf_get_smp_processor_id"
+  | ProbeRead         => "bpf_probe_read"
+
+end HelperFunc
+
 /-! ## BPF Instruction -/
 
 /-- A BPF instruction is 64 bits (8 bytes):
@@ -412,6 +467,15 @@ def exit : Insn :=
   , src_reg := Reg.R0
   , off := 0
   , imm := 0
+  }
+
+/-- Create a CALL instruction to a helper function -/
+def call (helper : HelperFunc) : Insn :=
+  { opcode := 0x85  -- BPF_JMP | BPF_CALL
+  , dst_reg := Reg.R0
+  , src_reg := Reg.R0
+  , off := 0
+  , imm := helper.toId.toInt32
   }
 
 end Insn

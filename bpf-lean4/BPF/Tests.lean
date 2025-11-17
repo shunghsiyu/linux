@@ -383,6 +383,94 @@ def test_detect_div_zero : Bool :=
   | VerifyResult.Invalid SecurityViolation.DivisionByZero _ => true
   | _ => false
 
+/-- Test program: Range refinement allows safe division
+    R0 = <unknown value from context>
+    if R0 <= 0 goto exit_zero
+    R1 = 100
+    R1 /= R0   // Safe! We know R0 > 0 in this branch
+    R0 = R1
+    exit
+    exit_zero:
+    R0 = 0
+    EXIT
+-/
+def range_refinement_program : Array Insn :=
+  #[-- R0 already initialized (context)
+    -- Check if R0 <= 0
+    Insn.movImm Reg.R2 0,
+    Insn.jeq Reg.R0 Reg.R2 3,  -- if R0 == 0, jump to exit_zero
+
+    -- Safe division path (R0 != 0)
+    Insn.movImm Reg.R1 100,
+    Insn.div Reg.R1 Reg.R0,  -- This should verify! R0 != 0 here
+    Insn.mov Reg.R0 Reg.R1,
+    Insn.exit,
+
+    -- exit_zero:
+    Insn.movImm Reg.R0 0,
+    Insn.exit
+  ]
+
+/-- Test: Range refinement enables safe division -/
+def test_range_refinement : Bool :=
+  match verifyProgram range_refinement_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-! ## Helper Function Test Programs -/
+
+/-- Program that calls bpf_ktime_get_ns helper -/
+def helper_ktime_program : Array Insn :=
+  #[
+    -- Call bpf_ktime_get_ns() - returns current time in R0
+    Insn.call HelperFunc.KtimeGetNs,
+
+    -- R0 now contains timestamp, return it
+    Insn.exit
+  ]
+
+/-- Test: Helper function call verifies -/
+def test_helper_ktime : Bool :=
+  match verifyProgram helper_ktime_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Program that calls bpf_get_prandom_u32 helper -/
+def helper_random_program : Array Insn :=
+  #[
+    -- Call bpf_get_prandom_u32() - returns random u32
+    Insn.call HelperFunc.GetPrandomU32,
+
+    -- Check if random number is even
+    Insn.movImm Reg.R1 1,
+    Insn.and Reg.R0 Reg.R1,  -- R0 & 1
+
+    -- Return result (0 = even, 1 = odd)
+    Insn.exit
+  ]
+
+/-- Test: Helper with subsequent operations verifies -/
+def test_helper_random : Bool :=
+  match verifyProgram helper_random_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
+/-- Program that calls GetSmpProcessorId -/
+def helper_cpu_id_program : Array Insn :=
+  #[
+    -- Get current CPU ID
+    Insn.call HelperFunc.GetSmpProcessorId,
+
+    -- CPU ID should be < 4096, return it
+    Insn.exit
+  ]
+
+/-- Test: CPU ID helper verifies -/
+def test_helper_cpu_id : Bool :=
+  match verifyProgram helper_cpu_id_program with
+  | VerifyResult.Valid => true
+  | _ => false
+
 /-- Test program: Stack operations
     R2 = R10 (frame pointer)
     R2 += -8 (stack offset)
@@ -509,6 +597,12 @@ def all_tests : List (String × Bool) := [
   ("verify_stack", test_verify_stack),
   ("verify_branch", test_verify_branch),
   ("detect_div_zero", test_detect_div_zero),
+  ("range_refinement", test_range_refinement),
+
+  -- Helper function tests
+  ("helper_ktime", test_helper_ktime),
+  ("helper_random", test_helper_random),
+  ("helper_cpu_id", test_helper_cpu_id),
 
   -- Certification tests
   ("certify_valid", test_certify_valid),
