@@ -190,12 +190,25 @@ def isScalar (r : RegState) : Bool :=
 /-- Check if register is a pointer -/
 def isPtr (r : RegState) : Bool :=
   match r.regType with
-  | RegType.PtrToCtx => true
-  | RegType.PtrToStack => true
-  | RegType.PtrToPacket => true
-  | RegType.PtrToMap => true
-  | RegType.ConstPtrToMap => true
+  | RegType.PtrToCtx | RegType.PtrToStack | RegType.PtrToPacket
+  | RegType.PtrToMap | RegType.ConstPtrToMap => true
   | _ => false
+
+/-- Check if register contains a constant value -/
+def isConst (r : RegState) : Bool :=
+  r.tnum.isConst
+
+/-- Get constant value if register is constant -/
+def getConst? (r : RegState) : Option UInt64 :=
+  if r.isConst then some r.value else none
+
+/-- Check if register could be zero (umin == 0) -/
+def mayBeZero (r : RegState) : Bool :=
+  r.umin == 0
+
+/-- Check if register is definitely non-zero (umin > 0) -/
+def isNonZero (r : RegState) : Bool :=
+  r.umin > 0
 
 end RegState
 

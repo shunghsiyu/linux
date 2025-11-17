@@ -74,6 +74,14 @@ end VerifierState
 
 /-- Merge two TNum values by computing their join (least upper bound).
     The result conservatively approximates both inputs.
+
+    This is the join operation in the abstract interpretation lattice.
+    Used when two control flow paths converge (e.g., after if/else).
+
+    Examples:
+    - const(5) ∨ const(5) = const(5)  -- Same constant preserved
+    - const(5) ∨ const(10) = unknown  -- Different constants → unknown
+    - const(5) ∨ unknown = unknown    -- Conservative approximation
 -/
 def mergeTNum (a b : TNum) : TNum :=
   if a == b then
@@ -133,7 +141,18 @@ def mergeVerifierState (a b : VerifierState) : VerifierState :=
 
 /-! ## Abstract Interpretation -/
 
-/-- Abstract addition of two register states -/
+/-- Abstract addition of two register states.
+
+    Handles both scalar arithmetic and pointer arithmetic:
+    - Scalar + Scalar: Normal arithmetic with range propagation
+    - Pointer + Scalar: Pointer arithmetic (preserves pointer type)
+
+    For pointer arithmetic, this models the C pattern:
+    ```c
+    void *ptr = ...;
+    void *new_ptr = ptr + offset;  // Preserves pointer type
+    ```
+-/
 def abstractAdd (dst src : RegState) : RegState :=
   -- Handle pointer + scalar addition (pointer arithmetic)
   match dst.regType, src.regType with
@@ -565,12 +584,16 @@ def refineRangeTrue (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
     reg
   | JmpOp.JGT =>
     -- R > imm (unsigned), so R >= imm + 1
-    let newMin := imm + 1
-    { reg with
-      umin := max reg.umin newMin
-      -- Also try to refine signed bounds
-      smin := if newMin.toInt64 > reg.smin then newMin.toInt64 else reg.smin
-    }
+    -- Guard against overflow: if imm == UInt64.max, no valid value > imm
+    if imm == UInt64.max then
+      reg  -- No refinement possible (unreachable branch)
+    else
+      let newMin := imm + 1
+      { reg with
+        umin := max reg.umin newMin
+        -- Also try to refine signed bounds
+        smin := if newMin.toInt64 > reg.smin then newMin.toInt64 else reg.smin
+      }
   | JmpOp.JGE =>
     -- R >= imm (unsigned)
     { reg with
@@ -579,10 +602,14 @@ def refineRangeTrue (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
     }
   | JmpOp.JLT =>
     -- R < imm (unsigned), so R <= imm - 1
-    let newMax := if imm > 0 then imm - 1 else UInt64.max
-    { reg with
-      umax := min reg.umax newMax
-    }
+    -- Guard against underflow: if imm == 0, no valid value < 0
+    if imm == 0 then
+      reg  -- No refinement possible (unreachable branch)
+    else
+      let newMax := imm - 1
+      { reg with
+        umax := min reg.umax newMax
+      }
   | JmpOp.JLE =>
     -- R <= imm (unsigned)
     { reg with
@@ -590,10 +617,14 @@ def refineRangeTrue (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
     }
   | JmpOp.JSGT =>
     -- R > imm (signed), so R >= imm + 1
-    let newMin := imm.toInt64 + 1
-    { reg with
-      smin := max reg.smin newMin
-    }
+    -- Guard against overflow
+    if imm.toInt64 == Int64.max then
+      reg  -- No refinement possible
+    else
+      let newMin := imm.toInt64 + 1
+      { reg with
+        smin := max reg.smin newMin
+      }
   | JmpOp.JSGE =>
     -- R >= imm (signed)
     { reg with
@@ -601,10 +632,14 @@ def refineRangeTrue (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
     }
   | JmpOp.JSLT =>
     -- R < imm (signed), so R <= imm - 1
-    let newMax := imm.toInt64 - 1
-    { reg with
-      smax := min reg.smax newMax
-    }
+    -- Guard against underflow
+    if imm.toInt64 == Int64.min then
+      reg  -- No refinement possible
+    else
+      let newMax := imm.toInt64 - 1
+      { reg with
+        smax := min reg.smax newMax
+      }
   | JmpOp.JSLE =>
     -- R <= imm (signed)
     { reg with
@@ -635,10 +670,14 @@ def refineRangeFalse (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
     }
   | JmpOp.JGE =>
     -- !(R >= imm) means R < imm, so R <= imm - 1
-    let newMax := if imm > 0 then imm - 1 else UInt64.max
-    { reg with
-      umax := min reg.umax newMax
-    }
+    -- Guard against underflow
+    if imm == 0 then
+      reg  -- No refinement possible (unreachable branch)
+    else
+      let newMax := imm - 1
+      { reg with
+        umax := min reg.umax newMax
+      }
   | JmpOp.JLT =>
     -- !(R < imm) means R >= imm
     { reg with
@@ -646,48 +685,43 @@ def refineRangeFalse (reg : RegState) (op : JmpOp) (imm : UInt64) : RegState :=
     }
   | JmpOp.JLE =>
     -- !(R <= imm) means R > imm, so R >= imm + 1
-    let newMin := imm + 1
-    { reg with
-      umin := max reg.umin newMin
-    }
+    -- Guard against overflow
+    if imm == UInt64.max then
+      reg  -- No refinement possible (unreachable branch)
+    else
+      let newMin := imm + 1
+      { reg with
+        umin := max reg.umin newMin
+      }
   | JmpOp.JSGT =>
     -- !(R > imm) means R <= imm (signed)
     { reg with
       smax := min reg.smax imm.toInt64
     }
   | JmpOp.JSGE =>
-    -- !(R >= imm) means R < imm (signed)
-    { reg with
-      smax := min reg.smax (imm.toInt64 - 1)
-    }
+    -- !(R >= imm) means R < imm (signed), so R <= imm - 1
+    -- Guard against underflow
+    if imm.toInt64 == Int64.min then
+      reg  -- No refinement possible (unreachable branch)
+    else
+      { reg with
+        smax := min reg.smax (imm.toInt64 - 1)
+      }
   | JmpOp.JSLT =>
     -- !(R < imm) means R >= imm (signed)
     { reg with
       smin := max reg.smin imm.toInt64
     }
   | JmpOp.JSLE =>
-    -- !(R <= imm) means R > imm (signed)
-    { reg with
-      smin := max reg.smin (imm.toInt64 + 1)
-    }
+    -- !(R <= imm) means R > imm (signed), so R >= imm + 1
+    -- Guard against overflow
+    if imm.toInt64 == Int64.max then
+      reg  -- No refinement possible (unreachable branch)
+    else
+      { reg with
+        smin := max reg.smin (imm.toInt64 + 1)
+      }
   | _ => reg
-
-/-- Extract jump operation from opcode -/
-def getJmpOp (insn : Insn) : Option JmpOp :=
-  let opBits := insn.opcode.toNat &&& 0xf0
-  match opBits with
-  | 0x00 => some JmpOp.JA
-  | 0x10 => some JmpOp.JEQ
-  | 0x50 => some JmpOp.JNE
-  | 0x20 => some JmpOp.JGT
-  | 0xa0 => some JmpOp.JLT
-  | 0x30 => some JmpOp.JGE
-  | 0xb0 => some JmpOp.JLE
-  | 0x60 => some JmpOp.JSGT
-  | 0x70 => some JmpOp.JSGE
-  | 0xc0 => some JmpOp.JSLT
-  | 0xd0 => some JmpOp.JSLE
-  | _ => none
 
 /-- Verify an ALU instruction -/
 def verifyAluInsn (s : VerifierState) (insn : Insn) : VerifyInsnResult :=
@@ -714,8 +748,9 @@ def verifyAluInsn (s : VerifierState) (insn : Insn) : VerifyInsnResult :=
       | none =>
         VerifyInsnResult.Invalid SecurityViolation.InvalidInstruction
       | some op =>
-        -- Check for division by zero
-        if (op == AluOp.DIV || op == AluOp.MOD) && srcReg.umin == 0 then
+        -- Check for division/modulo by zero
+        -- srcReg.mayBeZero means source could potentially be 0
+        if (op == AluOp.DIV || op == AluOp.MOD) && srcReg.mayBeZero then
           VerifyInsnResult.Invalid SecurityViolation.DivisionByZero
         else
           -- Perform abstract interpretation

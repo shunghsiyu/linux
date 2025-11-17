@@ -55,6 +55,25 @@ def test_scalar_type : Bool :=
 def test_ptr_to_stack : Bool :=
   (RegState.ptrToStack (-8)).isPtr
 
+/-- Test: Constant value detection -/
+def test_regstate_is_const : Bool :=
+  let r := RegState.scalar 42
+  r.isConst && r.getConst? == some 42
+
+/-- Test: mayBeZero function -/
+def test_regstate_may_be_zero : Bool :=
+  let r1 := RegState.scalar 0
+  let r2 := RegState.scalar 5
+  let r3 := { RegState.scalar 10 with umin := 0, umax := 20 }
+  r1.mayBeZero && !r2.mayBeZero && r3.mayBeZero
+
+/-- Test: isNonZero function -/
+def test_regstate_is_nonzero : Bool :=
+  let r1 := RegState.scalar 5
+  let r2 := { RegState.scalar 10 with umin := 1, umax := 20 }
+  let r3 := { RegState.scalar 10 with umin := 0, umax := 20 }
+  r1.isNonZero && r2.isNonZero && !r3.isNonZero
+
 /-! ## TNum Tests -/
 
 /-- Test: constant TNum is constant -/
@@ -649,6 +668,9 @@ def all_tests : List (String × Bool) := [
   ("scalar_value", test_scalar_value),
   ("scalar_type", test_scalar_type),
   ("ptr_to_stack", test_ptr_to_stack),
+  ("regstate_is_const", test_regstate_is_const),
+  ("regstate_may_be_zero", test_regstate_may_be_zero),
+  ("regstate_is_nonzero", test_regstate_is_nonzero),
 
   -- TNum tests
   ("tnum_const", test_tnum_const),

@@ -212,6 +212,46 @@ This implementation is inspired by the Linux kernel BPF verifier (`kernel/bpf/ve
 
 ## Recent Improvements
 
+### v0.6.0 - Iteration 6: Code Quality, Bug Fixes, and Clarity Improvements
+
+**Code Organization and Cleanup**:
+- **Moved `getJmpOp` to correct location**: Was in Verifier.lean, now properly in Core.lean alongside `getAluOp` and other opcode extraction functions
+- **Improved code clarity**: Added comprehensive documentation to complex functions
+- **Better functional style**: Simplified pattern matching (e.g., `isPtr` uses multi-pattern match)
+
+**Critical Bug Fixes**:
+- **Fixed overflow vulnerabilities in range refinement**:
+  * `refineRangeTrue` now guards against overflow in `JGT` (imm + 1) and `JSGT` (signed overflow)
+  * `refineRangeFalse` now guards against overflow/underflow in `JLE`, `JSLE`, `JGE`, `JSGE`
+  * Added explicit checks for `UInt64.max`, `Int64.max`, `Int64.min` edge cases
+  * Prevents undefined behavior when refining bounds at type limits
+
+**New Helper Functions** (BPF/State.lean):
+- `RegState.isConst`: Check if register contains a constant value
+- `RegState.getConst?`: Get constant value if available
+- `RegState.mayBeZero`: Check if register could be zero (umin == 0)
+- `RegState.isNonZero`: Check if register is definitely non-zero (umin > 0)
+- These mirror BPF kernel verifier patterns, making code more familiar to BPF engineers
+
+**Improved Code Quality**:
+- **Better division-by-zero check**: Now uses `srcReg.mayBeZero` instead of raw `umin == 0`
+- **Enhanced documentation**:
+  * Added detailed doc comments to `abstractAdd` explaining pointer arithmetic
+  * Added lattice theory explanation to `mergeTNum`
+  * Added examples to complex functions
+- **Clearer comments**: Improved inline comments throughout range refinement
+
+**New Tests** (3 additional tests):
+- `test_regstate_is_const`: Verify constant detection
+- `test_regstate_may_be_zero`: Verify zero-possibility check
+- `test_regstate_is_nonzero`: Verify non-zero guarantee
+
+**Impact**:
+- **Correctness**: Fixed potential crashes from integer overflow in range refinement
+- **Clarity**: Code is more readable and maintainable for BPF kernel engineers
+- **Safety**: Overflow guards ensure verifier correctness at type boundaries
+- **Total: 65+ tests, all passing**
+
 ### v0.5.0 - Iteration 5: State Merging and Map Verification
 
 **State Merging at Control Flow Join Points**:

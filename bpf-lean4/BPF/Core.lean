@@ -278,6 +278,25 @@ def getMemSize (insn : Insn) : Option MemSize :=
   | 0x18 => some MemSize.DW  -- 64-bit
   | _ => none
 
+/-- Extract jump operation from opcode.
+    Returns None for non-jump instructions or unsupported jump types.
+-/
+def getJmpOp (insn : Insn) : Option JmpOp :=
+  let opBits := insn.opcode.toNat &&& 0xf0
+  match opBits with
+  | 0x00 => some JmpOp.JA    -- unconditional jump
+  | 0x10 => some JmpOp.JEQ   -- jump if equal
+  | 0x50 => some JmpOp.JNE   -- jump if not equal
+  | 0x20 => some JmpOp.JGT   -- jump if greater (unsigned)
+  | 0xa0 => some JmpOp.JLT   -- jump if less than (unsigned)
+  | 0x30 => some JmpOp.JGE   -- jump if greater or equal (unsigned)
+  | 0xb0 => some JmpOp.JLE   -- jump if less or equal (unsigned)
+  | 0x60 => some JmpOp.JSGT  -- jump if greater (signed)
+  | 0x70 => some JmpOp.JSGE  -- jump if greater or equal (signed)
+  | 0xc0 => some JmpOp.JSLT  -- jump if less than (signed)
+  | 0xd0 => some JmpOp.JSLE  -- jump if less or equal (signed)
+  | _ => none
+
 /-- Check if instruction is a 64-bit operation -/
 def is64Bit (insn : Insn) : Bool :=
   match insn.getClass with
