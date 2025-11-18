@@ -132,6 +132,10 @@ theorem pc_in_bounds : ∀ (st st' : BpfState) (result : ExecResult),
   -- This would require detailed case analysis
   sorry
 
+-- Lemma: Structure updates using { s with field := val } preserve other fields by definition
+-- In Lean 4, { st with regs := r } creates a new BpfState with regs = r and all other fields from st
+-- So { st with regs := r }.fuel = st.fuel by reflexivity
+
 -- Helper lemma: When step returns Continue, fuel is decreased by exactly 1
 -- This captures the key invariant from st' := { st with fuel := st.fuel - 1 }
 -- Axiom for now: captures the fuel decrease property from step definition
