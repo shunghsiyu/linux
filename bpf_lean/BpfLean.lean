@@ -24,3 +24,4 @@ import BpfLean.Maps
 import BpfLean.Verifier
 import BpfLean.Proofs
 import BpfLean.Tests
+import BpfLean.Examples
