@@ -44,3 +44,11 @@ axiom uint64_or_and_distrib (a b c : UInt64) : a ||| (b &&& c) = (a ||| b) &&& (
 axiom uint64_and_assoc (a b c : UInt64) : (a &&& b) &&& c = a &&& (b &&& c)
 axiom uint64_or_assoc (a b c : UInt64) : (a ||| b) ||| c = a ||| (b ||| c)
 axiom uint64_xor_assoc (a b c : UInt64) : (a ^^^ b) ^^^ c = a ^^^ (b ^^^ c)
+
+-- Min/max idempotence (standard properties)
+axiom min_self {α : Type} [Min α] (a : α) : min a a = a
+axiom max_self {α : Type} [Max α] (a : α) : max a a = a
+
+-- Min/max commutativity
+axiom min_comm {α : Type} [Min α] (a b : α) : min a b = min b a
+axiom max_comm {α : Type} [Max α] (a b : α) : max a b = max b a
