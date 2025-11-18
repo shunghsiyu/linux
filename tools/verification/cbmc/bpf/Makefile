@@ -79,6 +79,7 @@ help:
 	@echo "    tnum_add_verify            - Verify tnum addition is sound"
 	@echo "    tnum_sub_verify            - Verify tnum subtraction is sound"
 	@echo "    tnum_mul_verify            - Verify tnum multiplication is sound"
+	@echo "    tnum_neg_verify            - Verify tnum negation is sound"
 	@echo "  Bitwise:"
 	@echo "    tnum_and_verify            - Verify tnum bitwise AND is sound"
 	@echo "    tnum_or_verify             - Verify tnum bitwise OR is sound"
@@ -86,6 +87,13 @@ help:
 	@echo "  Shifts:"
 	@echo "    tnum_lshift_verify         - Verify tnum left shift is sound"
 	@echo "    tnum_rshift_verify         - Verify tnum right shift is sound"
+	@echo "    tnum_arshift_verify        - Verify tnum arith right shift is sound"
+	@echo "  Set Operations:"
+	@echo "    tnum_union_verify          - Verify tnum union is sound"
+	@echo "    tnum_intersect_verify      - Verify tnum intersection is sound"
+	@echo "  Constructors/Utilities:"
+	@echo "    tnum_range_verify          - Verify tnum range constructor is sound"
+	@echo "    tnum_cast_verify           - Verify tnum cast/truncation is sound"
 	@echo ""
 	@echo "Each target has variants:"
 	@echo "  <target>_verify              - Run verification"
@@ -331,6 +339,138 @@ tnum_mul_simple: tnum_mul_verify.c $(BUILD_DIR)/verifier.goto
 	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
 	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_mul_simple_full.goto
 
+# tnum_neg verification targets
+$(BUILD_DIR)/tnum_neg_verify.goto: tnum_neg_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_neg verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_neg_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_neg_full.goto
+
+tnum_neg_verify: $(BUILD_DIR)/tnum_neg_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_neg...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_neg_full.goto
+
+tnum_neg_trace: $(BUILD_DIR)/tnum_neg_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_neg_full.goto
+
+tnum_neg_simple: tnum_neg_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_neg_verify.c -o $(BUILD_DIR)/tnum_neg_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_neg_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_neg_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_neg_simple_full.goto
+
+# tnum_arshift verification targets
+$(BUILD_DIR)/tnum_arshift_verify.goto: tnum_arshift_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_arshift verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_arshift_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_arshift_full.goto
+
+tnum_arshift_verify: $(BUILD_DIR)/tnum_arshift_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_arshift...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_arshift_full.goto
+
+tnum_arshift_trace: $(BUILD_DIR)/tnum_arshift_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_arshift_full.goto
+
+tnum_arshift_simple: tnum_arshift_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_arshift_verify.c -o $(BUILD_DIR)/tnum_arshift_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_arshift_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_arshift_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_arshift_simple_full.goto
+
+# tnum_union verification targets
+$(BUILD_DIR)/tnum_union_verify.goto: tnum_union_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_union verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_union_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_union_full.goto
+
+tnum_union_verify: $(BUILD_DIR)/tnum_union_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_union...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_union_full.goto
+
+tnum_union_trace: $(BUILD_DIR)/tnum_union_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_union_full.goto
+
+tnum_union_simple: tnum_union_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_union_verify.c -o $(BUILD_DIR)/tnum_union_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_union_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_union_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_union_simple_full.goto
+
+# tnum_intersect verification targets
+$(BUILD_DIR)/tnum_intersect_verify.goto: tnum_intersect_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_intersect verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_intersect_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_intersect_full.goto
+
+tnum_intersect_verify: $(BUILD_DIR)/tnum_intersect_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_intersect...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_intersect_full.goto
+
+tnum_intersect_trace: $(BUILD_DIR)/tnum_intersect_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_intersect_full.goto
+
+tnum_intersect_simple: tnum_intersect_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_intersect_verify.c -o $(BUILD_DIR)/tnum_intersect_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_intersect_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_intersect_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_intersect_simple_full.goto
+
+# tnum_range verification targets
+$(BUILD_DIR)/tnum_range_verify.goto: tnum_range_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_range verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_range_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_range_full.goto
+
+tnum_range_verify: $(BUILD_DIR)/tnum_range_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_range...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_range_full.goto
+
+tnum_range_trace: $(BUILD_DIR)/tnum_range_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_range_full.goto
+
+tnum_range_simple: tnum_range_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_range_verify.c -o $(BUILD_DIR)/tnum_range_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_range_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_range_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_range_simple_full.goto
+
+# tnum_cast verification targets
+$(BUILD_DIR)/tnum_cast_verify.goto: tnum_cast_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building tnum_cast verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c tnum_cast_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_cast_full.goto
+
+tnum_cast_verify: $(BUILD_DIR)/tnum_cast_verify.goto
+	@echo "$(GREEN)Running CBMC verification for tnum_cast...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/tnum_cast_full.goto
+
+tnum_cast_trace: $(BUILD_DIR)/tnum_cast_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_cast_full.goto
+
+tnum_cast_simple: tnum_cast_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c tnum_cast_verify.c -o $(BUILD_DIR)/tnum_cast_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/tnum_cast_simple.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/tnum_cast_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/tnum_cast_simple_full.goto
+
 # Template for adding new verification targets
 # Replace FUNCNAME with your function name
 #
@@ -357,8 +497,14 @@ clean:
         tnum_add_verify tnum_add_trace tnum_add_simple \
         tnum_sub_verify tnum_sub_trace tnum_sub_simple \
         tnum_mul_verify tnum_mul_trace tnum_mul_simple \
+        tnum_neg_verify tnum_neg_trace tnum_neg_simple \
         tnum_and_verify tnum_and_trace tnum_and_simple \
         tnum_or_verify tnum_or_trace tnum_or_simple \
         tnum_xor_verify tnum_xor_trace tnum_xor_simple \
         tnum_lshift_verify tnum_lshift_trace tnum_lshift_simple \
-        tnum_rshift_verify tnum_rshift_trace tnum_rshift_simple
+        tnum_rshift_verify tnum_rshift_trace tnum_rshift_simple \
+        tnum_arshift_verify tnum_arshift_trace tnum_arshift_simple \
+        tnum_union_verify tnum_union_trace tnum_union_simple \
+        tnum_intersect_verify tnum_intersect_trace tnum_intersect_simple \
+        tnum_range_verify tnum_range_trace tnum_range_simple \
+        tnum_cast_verify tnum_cast_trace tnum_cast_simple

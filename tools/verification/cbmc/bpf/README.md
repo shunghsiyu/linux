@@ -90,17 +90,33 @@ Tnums are the foundation of BPF verifier's bit-level abstract interpretation. Ea
 - **1** - known to be one
 - **x** - unknown (could be 0 or 1)
 
-For `tnum_add(a, b)`, we verify:
+We have **complete coverage** of all 14 tnum operations in `kernel/bpf/tnum.c`:
 
-**Property**: For any concrete values `a_val` and `b_val` represented by tnums `a` and `b`, the sum `a_val + b_val` must be represented by `tnum_add(a, b)`.
+**Arithmetic Operations:**
+- `tnum_add(a, b)` - Addition with carry propagation
+- `tnum_sub(a, b)` - Subtraction with borrow propagation
+- `tnum_mul(a, b)` - Multiplication using long multiplication algorithm
+- `tnum_neg(a)` - Two's complement negation
 
-For `tnum_and(a, b)`, we verify:
+**Bitwise Operations:**
+- `tnum_and(a, b)` - Bitwise AND
+- `tnum_or(a, b)` - Bitwise OR
+- `tnum_xor(a, b)` - Bitwise XOR
 
-**Property**: For any concrete values `a_val` and `b_val` represented by tnums `a` and `b`, the bitwise AND `a_val & b_val` must be represented by `tnum_and(a, b)`.
+**Shift Operations:**
+- `tnum_lshift(a, shift)` - Logical left shift
+- `tnum_rshift(a, shift)` - Logical right shift
+- `tnum_arshift(a, shift, size)` - Arithmetic right shift (sign-aware)
 
-For `tnum_lshift(a, shift)`, we verify:
+**Set Operations:**
+- `tnum_union(a, b)` - Set union (control flow merging)
+- `tnum_intersect(a, b)` - Set intersection (constraint solving)
 
-**Property**: For any concrete value `a_val` represented by tnum `a`, the left shift `a_val << shift` must be represented by `tnum_lshift(a, shift)`.
+**Constructors/Utilities:**
+- `tnum_range(min, max)` - Create tnum from range
+- `tnum_cast(a, size)` - Truncate to smaller size
+
+**Example Property** (for `tnum_add`): For any concrete values `a_val` and `b_val` represented by tnums `a` and `b`, the sum `a_val + b_val` must be represented by `tnum_add(a, b)`.
 
 **Key Insight**: These properties ensure soundness - the abstract operations may over-approximate (be conservative), but they must never under-approximate (miss possible values).
 

@@ -2,61 +2,40 @@
 
 ## Current Status
 
-**Completed: 10 verification harnesses**
+**Completed: 16 verification harnesses**
 
 ### Verifier Register Tracking (2/~30)
 - ✅ coerce_reg_to_size_sx - Sign extension tracking
 - ✅ scalar_min_max_add - 64-bit addition tracking
 
-### Tnum Operations (8/14)
-- ✅ tnum_add, tnum_sub, tnum_mul
-- ✅ tnum_and, tnum_or, tnum_xor
-- ✅ tnum_lshift, tnum_rshift
+### Tnum Operations (14/14) - ✅ COMPLETE
+- ✅ tnum_add, tnum_sub, tnum_mul, tnum_neg (Arithmetic)
+- ✅ tnum_and, tnum_or, tnum_xor (Bitwise)
+- ✅ tnum_lshift, tnum_rshift, tnum_arshift (Shifts)
+- ✅ tnum_union, tnum_intersect (Set Operations)
+- ✅ tnum_range, tnum_cast (Constructors/Utilities)
 
 ---
 
 ## High-Priority Targets
 
-### 🔥 Category 1: Complete Tnum Library (6 operations)
+### ✅ Phase 1: Complete Tnum Library (6 operations) - COMPLETED
 
-**Why:** Tnums are the foundation of BPF verifier. Completing this gives us full formal verification of the core abstraction.
+**Achievement:** Full formal verification of all tnum operations in `kernel/bpf/tnum.c`
 
-1. **tnum_arshift** - Arithmetic right shift
-   - **Complexity:** Medium-High (sign bit handling)
-   - **Impact:** High (used in signed arithmetic)
-   - **Unique challenge:** Must verify sign bit propagation
+Completed operations:
+1. ✅ **tnum_arshift** - Arithmetic right shift with sign bit propagation
+2. ✅ **tnum_union** - Set union for control flow merging
+3. ✅ **tnum_intersect** - Set intersection for constraint solving
+4. ✅ **tnum_range** - Range constructor with over-approximation
+5. ✅ **tnum_cast** - Truncation to smaller size
+6. ✅ **tnum_neg** - Two's complement negation
 
-2. **tnum_union** - Set union operation
-   - **Complexity:** Medium
-   - **Impact:** Very High (used extensively in control flow merging)
-   - **Unique challenge:** Over-approximation soundness
-
-3. **tnum_intersect** - Set intersection
-   - **Complexity:** Medium
-   - **Impact:** High (constraint solving)
-   - **Unique challenge:** Can produce contradictions
-
-4. **tnum_range** - Range constructor
-   - **Complexity:** Medium-High (bit pattern derivation)
-   - **Impact:** High (constructor used everywhere)
-   - **Unique challenge:** May over-approximate (returns superset)
-
-5. **tnum_cast** - Truncation to smaller size
-   - **Complexity:** Low-Medium
-   - **Impact:** Medium (size conversions)
-   - **Unique challenge:** Clearing upper bits
-
-6. **tnum_neg** - Negation (0 - a)
-   - **Complexity:** Low (just calls tnum_sub)
-   - **Impact:** Medium
-   - **Unique challenge:** None (wrapper function)
-
-**Estimated effort:** 3-4 hours
-**Value:** ⭐⭐⭐⭐⭐ (Complete tnum verification)
+**Value delivered:** ⭐⭐⭐⭐⭐ Complete coverage of the BPF verifier's core abstraction
 
 ---
 
-### 🔥 Category 2: Scalar Arithmetic Operations (5 operations)
+### 🔥 Phase 2: Scalar Arithmetic Operations (5 operations)
 
 **Why:** These are the most commonly used operations in BPF programs.
 
@@ -86,7 +65,7 @@
 
 ---
 
-### 🔥 Category 3: Critical Integration Functions (2 operations)
+### 🔥 Phase 3: Critical Integration Functions (2 operations)
 
 **Why:** These maintain invariants across all BPF verifier state updates.
 
