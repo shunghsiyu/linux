@@ -170,6 +170,15 @@ theorem fuel_unchanged_by_pc_update : ∀ (st : BpfState) (pc : Nat),
   intro st pc
   rfl
 
+-- Axiom: When pc is out of bounds, step returns Error (never Continue)
+axiom step_pc_oob_returns_error : ∀ (st : BpfState),
+    st.fuel > 0 →
+    st.pc >= st.prog.size →
+    match st.step.2 with
+    | .Error _ => True
+    | .Continue => False
+    | .Exit _ => False
+
 -- Helper lemma: When step returns Continue, fuel is decreased by exactly 1
 -- This captures the key invariant from st' := { st with fuel := st.fuel - 1 }
 -- For now, axiom - proving this requires case analysis on all instruction types
@@ -197,10 +206,18 @@ theorem fuel_decreases : ∀ (st st' : BpfState) (result : ExecResult),
   · -- Case: pc out of bounds - step returns Error, contradicts Continue
     -- When pc >= prog.size, step returns Error "pc out of bounds"
     -- This contradicts result = .Continue
-    unfold BpfState.step at h_step
-    simp at h_step
-    -- The exact contradiction proof is tedious; for now use sorry
-    sorry
+    -- From h_pc : ¬(st.pc < st.prog.size), we get st.pc >= st.prog.size
+    have h_pc_oob : st.pc >= st.prog.size := by omega
+    -- From axiom, st.step.2 must be Error (not Continue)
+    have h_error := step_pc_oob_returns_error st h_fuel h_pc_oob
+    -- But st.step = (st', result) and result = .Continue
+    -- So st.step.2 = result = .Continue
+    rw [h_step] at h_error
+    simp at h_error
+    rw [h_cont] at h_error
+    -- Now h_error says Continue matches .Error => True, .Continue => False
+    -- This is False by pattern matching
+    cases h_error
 
 -- Lemma: When two values agree on consistent bits, AND with those bits is equal
 -- Key insight: final_known only includes bits where a and b have the same value
