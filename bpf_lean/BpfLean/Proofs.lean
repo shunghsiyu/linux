@@ -136,9 +136,25 @@ theorem pc_in_bounds : ∀ (st st' : BpfState) (result : ExecResult),
 -- In Lean 4, { st with regs := r } creates a new BpfState with regs = r and all other fields from st
 -- So { st with regs := r }.fuel = st.fuel by reflexivity
 
+-- Helper fact: structure update preserves fuel field
+theorem fuel_unchanged_by_regs_update : ∀ (st : BpfState) (regs : RegFile),
+    ({ st with regs := regs }).fuel = st.fuel := by
+  intro st regs
+  rfl
+
+theorem fuel_unchanged_by_mem_update : ∀ (st : BpfState) (mem : Memory),
+    ({ st with mem := mem }).fuel = st.fuel := by
+  intro st mem
+  rfl
+
+theorem fuel_unchanged_by_pc_update : ∀ (st : BpfState) (pc : Nat),
+    ({ st with pc := pc }).fuel = st.fuel := by
+  intro st pc
+  rfl
+
 -- Helper lemma: When step returns Continue, fuel is decreased by exactly 1
 -- This captures the key invariant from st' := { st with fuel := st.fuel - 1 }
--- Axiom for now: captures the fuel decrease property from step definition
+-- For now, axiom - proving this requires case analysis on all instruction types
 axiom step_continue_decreases_fuel : ∀ (st st' : BpfState) (result : ExecResult),
     st.fuel > 0 →
     st.pc < st.prog.size →
