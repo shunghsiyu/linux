@@ -171,6 +171,130 @@ def evalJmpCond (op : BpfJmpOp) (x y : UInt64) (is32bit : Bool) : Bool :=
   | .JSLE => x'.toInt64 <= y'.toInt64
   | _ => false
 
+-- Helper function: convert UInt64 to byte list (little-endian)
+def uint64ToBytes (val : UInt64) : List UInt8 :=
+  let b0 := ((val >>> 0) &&& 0xff).toUInt8
+  let b1 := ((val >>> 8) &&& 0xff).toUInt8
+  let b2 := ((val >>> 16) &&& 0xff).toUInt8
+  let b3 := ((val >>> 24) &&& 0xff).toUInt8
+  let b4 := ((val >>> 32) &&& 0xff).toUInt8
+  let b5 := ((val >>> 40) &&& 0xff).toUInt8
+  let b6 := ((val >>> 48) &&& 0xff).toUInt8
+  let b7 := ((val >>> 56) &&& 0xff).toUInt8
+  [b0, b1, b2, b3, b4, b5, b6, b7]
+
+-- Helper function: convert byte list to UInt64 (little-endian)
+def bytesToUInt64 (bytes : List UInt8) : UInt64 :=
+  match bytes with
+  | [b0, b1, b2, b3, b4, b5, b6, b7] =>
+      b0.toUInt64 |||
+      (b1.toUInt64 <<< 8) |||
+      (b2.toUInt64 <<< 16) |||
+      (b3.toUInt64 <<< 24) |||
+      (b4.toUInt64 <<< 32) |||
+      (b5.toUInt64 <<< 40) |||
+      (b6.toUInt64 <<< 48) |||
+      (b7.toUInt64 <<< 56)
+  | _ => 0  -- Invalid length, return 0
+
+-- Execute a helper function call
+-- Arguments are in R1-R5, result goes in R0
+-- Returns updated state and whether call succeeded
+def execHelper (st : BpfState) (helperId : Int32) : BpfState × Bool :=
+  match BpfHelper.fromInt? helperId with
+  | none => (st, false)  -- Unknown helper
+
+  | some .MapLookupElem =>
+      -- R1 = map fd (as pointer), R2 = key pointer
+      -- Returns pointer to value in R0, or 0 if not found
+      let mapFd := st.regs.read .R1
+      let keyPtr := st.regs.read .R2
+
+      -- For simulation, treat mapFd as direct index
+      match st.maps.get mapFd.toNat with
+      | none =>
+          -- Invalid map, return null
+          let regs' := st.regs.writeChecked .R0 0
+          ({ st with regs := regs' }, true)
+      | some map =>
+          -- Read key from memory (simplified: assume 8-byte key at keyPtr)
+          match st.mem.read64 keyPtr with
+          | none =>
+              let regs' := st.regs.writeChecked .R0 0
+              ({ st with regs := regs' }, true)
+          | some keyVal =>
+              let keyBytes := uint64ToBytes keyVal
+              -- Lookup in map
+              match map.lookup keyBytes with
+              | MapValue.None =>
+                  let regs' := st.regs.writeChecked .R0 0
+                  ({ st with regs := regs' }, true)
+              | MapValue.Some _value =>
+                  -- Return a fake pointer (in real BPF, this would be actual pointer)
+                  -- For simulation, return keyPtr + 0x1000 to indicate success
+                  let regs' := st.regs.writeChecked .R0 (keyPtr + 0x1000)
+                  ({ st with regs := regs' }, true)
+
+  | some .MapUpdateElem =>
+      -- R1 = map fd, R2 = key pointer, R3 = value pointer, R4 = flags
+      let mapFd := st.regs.read .R1
+      let keyPtr := st.regs.read .R2
+      let valPtr := st.regs.read .R3
+
+      match st.maps.get mapFd.toNat with
+      | none =>
+          -- Invalid map, return error (-1)
+          let regs' := st.regs.writeChecked .R0 (UInt64.ofNat (2^64 - 1))
+          ({ st with regs := regs' }, true)
+      | some map =>
+          -- Read key and value from memory
+          match st.mem.read64 keyPtr, st.mem.read64 valPtr with
+          | some keyVal, some value =>
+              let keyBytes := uint64ToBytes keyVal
+              let valBytes := uint64ToBytes value
+              -- Update map
+              let map' := map.update keyBytes valBytes
+              let maps' := st.maps.set mapFd.toNat map'
+              -- Return success (0)
+              let regs' := st.regs.writeChecked .R0 0
+              ({ st with regs := regs', maps := maps' }, true)
+          | _, _ =>
+              -- Memory read failed, return error
+              let regs' := st.regs.writeChecked .R0 (UInt64.ofNat (2^64 - 1))
+              ({ st with regs := regs' }, true)
+
+  | some .MapDeleteElem =>
+      -- R1 = map fd, R2 = key pointer
+      let mapFd := st.regs.read .R1
+      let keyPtr := st.regs.read .R2
+
+      match st.maps.get mapFd.toNat with
+      | none =>
+          let regs' := st.regs.writeChecked .R0 (UInt64.ofNat (2^64 - 1))
+          ({ st with regs := regs' }, true)
+      | some map =>
+          match st.mem.read64 keyPtr with
+          | some keyVal =>
+              let keyBytes := uint64ToBytes keyVal
+              let map' := map.delete keyBytes
+              let maps' := st.maps.set mapFd.toNat map'
+              let regs' := st.regs.writeChecked .R0 0
+              ({ st with regs := regs', maps := maps' }, true)
+          | none =>
+              let regs' := st.regs.writeChecked .R0 (UInt64.ofNat (2^64 - 1))
+              ({ st with regs := regs' }, true)
+
+  | some .GetProcTime =>
+      -- Return a fake timestamp (nanoseconds)
+      let regs' := st.regs.writeChecked .R0 1234567890
+      ({ st with regs := regs' }, true)
+
+  | some .TraceMsg =>
+      -- R1 = format string, R2 = format string size, R3-R5 = arguments
+      -- For simulation, just return success
+      let regs' := st.regs.writeChecked .R0 0
+      ({ st with regs := regs' }, true)
+
 -- Execute a single instruction
 def step (st : BpfState) : BpfState × ExecResult :=
   if st.fuel == 0 then
@@ -323,9 +447,13 @@ def step (st : BpfState) : BpfState × ExecResult :=
         else
           (st', .Continue)
 
-    | some (.Call _) =>
-        -- Simplified: we don't implement helper calls yet
-        (st, .Error "helper calls not implemented")
+    | some (.Call helperId) =>
+        -- Execute helper function
+        let (st'', success) := execHelper st' helperId
+        if success then
+          (st'', .Continue)
+        else
+          (st, .Error s!"unknown helper function: {helperId}")
 
 -- Run the VM until termination or error
 partial def run (st : BpfState) (maxSteps : Nat := 10000) : BpfState × ExecResult :=
