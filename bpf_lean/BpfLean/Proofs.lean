@@ -10,6 +10,7 @@ import BpfLean.Instruction
 import BpfLean.State
 import BpfLean.Security
 import BpfLean.Verifier
+import BpfLean.BitOps
 
 -- Proof: R10 is always the frame pointer
 theorem r10_is_frame_pointer : ∀ (st : BpfState) (val : UInt64),
@@ -96,8 +97,13 @@ theorem exit_terminates : ∀ (insn : BpfInsn),
     | .Error _ => True  -- might error if R0 not initialized
     | .Continue => False := by
   intro insn h_exit st
-  -- This would require case analysis on the actual instruction
-  sorry
+  -- Exit instruction (code 0x95) always produces Exit or Error result
+  simp [BpfState.step]
+  -- The proof follows from the definition of step:
+  -- When we decode an Exit instruction, we return (.Exit retval)
+  -- The only way this could be Error is if fuel = 0 or pc out of bounds
+  -- but those also don't return .Continue
+  sorry  -- Would need to unfold step definition and case split
 
 -- Property: Program counter stays in bounds during valid execution
 theorem pc_in_bounds : ∀ (st st' : BpfState) (result : ExecResult),
@@ -115,32 +121,48 @@ theorem fuel_decreases : ∀ (st st' : BpfState) (result : ExecResult),
     result = .Continue →
     st'.fuel < st.fuel := by
   intro st st' result h_fuel h_step h_cont
-  -- This would follow from the definition of step
-  sorry
+  -- From the definition of BpfState.step:
+  -- let st' := { st with pc := st.pc + 1, fuel := st.fuel - 1 }
+  -- So st'.fuel = st.fuel - 1 < st.fuel when st.fuel > 0
+  simp [BpfState.step] at h_step
+  -- The proof requires unfolding step and showing that in all cases
+  -- where result = .Continue, we have fuel decreased
+  sorry  -- Requires detailed case analysis of step
 
 -- Lemma: Abstract value merge is commutative
 -- This is important for ensuring lattice join has the right properties
 theorem abstract_value_merge_comm : ∀ (a b : AbstractValue),
     AbstractValue.merge a b = AbstractValue.merge b a := by
   intro a b
-  -- Full proof requires:
-  -- - Commutativity of bitwise operations (&&& and ^^^)
-  -- - min/max commutativity (proven below for numeric fields)
-  -- - Bit manipulation lemmas for known_mask and known_value
-  simp [AbstractValue.merge]
-  sorry  -- Bit manipulation proofs deferred
+  -- The proof requires showing that all fields are symmetric:
+  -- 1. Bitwise operations (&&& and ^^^) are commutative (via uint64_xor_comm, uint64_and_comm)
+  -- 2. min and max are commutative
+  -- 3. The consistent mask computation is symmetric
+  --
+  -- Full proof:
+  -- - known_mask: a.known_mask &&& b.known_mask = b.known_mask &&& a.known_mask (uint64_and_comm)
+  -- - consistent: ~~~(a.known_value ^^^ b.known_value) = ~~~(b.known_value ^^^ a.known_value) (uint64_xor_comm)
+  -- - known_value: symmetric by above
+  -- - All min/max fields: commutativity of min and max
+  sorry  -- Deferred: requires structural equality proof with bitwise lemmas
 
 -- Lemma: Abstract value merge is idempotent
 -- This ensures joining a value with itself doesn't lose precision
 theorem abstract_value_merge_idem : ∀ (a : AbstractValue),
     AbstractValue.merge a a = a := by
   intro a
-  -- Full proof requires:
-  -- - min a a = a and max a a = a (holds for all numeric types)
-  -- - Bitwise operations: a &&& a = a, a ^^^ a = 0, etc.
-  -- - ~~~0 &&& x = x (complement of zero is all ones)
-  simp [AbstractValue.merge]
-  sorry  -- Bit manipulation proofs deferred
+  -- The proof requires showing that merge(a, a) = a for all fields:
+  -- 1. known_mask: (a.known_mask &&& a.known_mask &&& ~~~(a.known_value ^^^ a.known_value))
+  --                = a.known_mask &&& a.known_mask &&& ~~~0     (by uint64_xor_self)
+  --                = a.known_mask &&& a.known_mask &&& 0xFF...FF  (by uint64_complement_zero)
+  --                = a.known_mask &&& a.known_mask               (by uint64_and_ones)
+  --                = a.known_mask                                (by uint64_and_self)
+  -- 2. known_value: similar reasoning
+  -- 3. All min/max fields: min a a = a and max a a = a
+  --
+  -- This would follow from the axioms we defined, but requires careful
+  -- structur equality proof.
+  sorry  -- Deferred: requires structural equality with bitwise axioms
 
 -- Lemma: Register write preserves other registers in abstract reg file
 theorem abstract_reg_write_independent : ∀ (rf : AbstractRegFile) (r1 r2 : BpfReg) (val : AbstractReg),
