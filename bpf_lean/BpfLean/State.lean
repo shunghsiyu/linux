@@ -8,6 +8,7 @@
 
 import BpfLean.Basic
 import BpfLean.Instruction
+import BpfLean.Maps
 
 -- Register file: maps each BPF register to a 64-bit value
 def RegFile := BpfReg → UInt64
@@ -96,6 +97,7 @@ structure BpfState where
   pc : Nat                 -- program counter
   prog : Array BpfInsn     -- the program
   fuel : Nat               -- execution fuel (for termination)
+  maps : MapTable          -- available maps (for helper calls)
 
 instance : Inhabited BpfState where
   default := {
@@ -104,16 +106,18 @@ instance : Inhabited BpfState where
     pc := 0
     prog := #[]
     fuel := 0
+    maps := MapTable.empty
   }
 
 namespace BpfState
 
-def init (prog : Array BpfInsn) (fuel : Nat := 10000) : BpfState :=
+def init (prog : Array BpfInsn) (fuel : Nat := 10000) (maps : MapTable := MapTable.empty) : BpfState :=
   { regs := RegFile.init
   , mem := Memory.init
   , pc := 0
   , prog := prog
   , fuel := fuel
+  , maps := maps
   }
 
 -- Execute ALU operations

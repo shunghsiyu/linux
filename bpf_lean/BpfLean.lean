@@ -20,6 +20,7 @@ import BpfLean.Basic
 import BpfLean.Instruction
 import BpfLean.State
 import BpfLean.Security
+import BpfLean.Maps
 import BpfLean.Verifier
 import BpfLean.Proofs
 import BpfLean.Tests
