@@ -17,6 +17,7 @@ import BpfLean.Basic
 import BpfLean.Instruction
 import BpfLean.State
 import BpfLean.Security
+import BpfLean.Maps
 
 -- Verifier state at a specific program point
 structure VerifierState where
@@ -229,7 +230,76 @@ def verifyInstruction (st : VerifierState) (insn : BpfInstr) (pc : Nat)
   | .JumpImm op dst imm off => .ok st
   | .Jump32Reg op dst src off => .ok st
   | .Jump32Imm op dst imm off => .ok st
-  | .Call imm => .ok st
+
+  | .Call helperId =>
+      -- Verify helper function call
+      match BpfHelper.fromInt? helperId with
+      | none => .error (.Other s!"Unknown helper function: {helperId}")
+      | some helper =>
+          -- Check arguments are initialized based on helper requirements
+          match helper with
+          | .MapLookupElem =>
+              -- R1 = map ptr, R2 = key ptr
+              let r1 := st.regs.read .R1
+              let r2 := st.regs.read .R2
+              if !r1.isInit then
+                .error (.UninitializedRegister pc .R1)
+              else if !r2.isInit then
+                .error (.UninitializedRegister pc .R2)
+              else
+                -- After call, R0 contains scalar or pointer
+                -- Conservative: mark as unknown scalar
+                let regs' := st.regs.write .R0 AbstractReg.scalarUnknown
+                .ok { st with regs := regs' }
+
+          | .MapUpdateElem =>
+              -- R1 = map ptr, R2 = key ptr, R3 = value ptr, R4 = flags
+              let r1 := st.regs.read .R1
+              let r2 := st.regs.read .R2
+              let r3 := st.regs.read .R3
+              let r4 := st.regs.read .R4
+              if !r1.isInit then
+                .error (.UninitializedRegister pc .R1)
+              else if !r2.isInit then
+                .error (.UninitializedRegister pc .R2)
+              else if !r3.isInit then
+                .error (.UninitializedRegister pc .R3)
+              else if !r4.isInit then
+                .error (.UninitializedRegister pc .R4)
+              else
+                -- R0 = return value (0 or -1)
+                let regs' := st.regs.write .R0 AbstractReg.scalarUnknown
+                .ok { st with regs := regs' }
+
+          | .MapDeleteElem =>
+              -- R1 = map ptr, R2 = key ptr
+              let r1 := st.regs.read .R1
+              let r2 := st.regs.read .R2
+              if !r1.isInit then
+                .error (.UninitializedRegister pc .R1)
+              else if !r2.isInit then
+                .error (.UninitializedRegister pc .R2)
+              else
+                let regs' := st.regs.write .R0 AbstractReg.scalarUnknown
+                .ok { st with regs := regs' }
+
+          | .GetProcTime =>
+              -- No arguments, just returns timestamp in R0
+              let regs' := st.regs.write .R0 AbstractReg.scalarUnknown
+              .ok { st with regs := regs' }
+
+          | .TraceMsg =>
+              -- R1 = format string, R2 = format size, R3-R5 = arguments
+              -- For now, just check R1 and R2 are initialized
+              let r1 := st.regs.read .R1
+              let r2 := st.regs.read .R2
+              if !r1.isInit then
+                .error (.UninitializedRegister pc .R1)
+              else if !r2.isInit then
+                .error (.UninitializedRegister pc .R2)
+              else
+                let regs' := st.regs.write .R0 AbstractReg.scalarUnknown
+                .ok { st with regs := regs' }
 
 -- Get all successor program counters for an instruction
 def getSuccessors (insn : BpfInstr) (pc : Nat) (progSize : Nat) : List Nat :=
