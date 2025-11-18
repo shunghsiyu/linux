@@ -124,9 +124,11 @@ theorem exit_terminates : ∀ (insn : BpfInsn),
 
     -- Now unfold step and simplify
     unfold BpfState.step
-    simp [h_prog, h_decode]
-    -- After simplification, the result is .Exit which satisfies our goal
-    sorry  -- Remaining: prove True after simplification
+    simp only [h_prog, h_decode]
+
+    -- The conditionals should simplify based on preconditions
+    -- After simplification, match on .Exit returns .Exit result
+    sorry  -- Remaining: final simplification of conditionals and match
 
   · -- All other cases: isExit = false, contradicts h_exit
     contradiction
