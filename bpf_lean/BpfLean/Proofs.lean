@@ -89,21 +89,39 @@ theorem execution_deterministic : ∀ (prog : Array BpfInsn) (fuel : Nat),
   rfl
 
 -- Property: Exit instruction terminates execution
+-- Assumes the exit instruction is actually at st.pc in st.prog
 theorem exit_terminates : ∀ (insn : BpfInsn),
     insn.isExit = true →
     ∀ (st : BpfState),
+    st.fuel > 0 →
+    st.pc < st.prog.size →
+    st.prog[st.pc]! = insn →
     match st.step.2 with
     | .Exit _ => True
     | .Error _ => True  -- might error if R0 not initialized
     | .Continue => False := by
-  intro insn h_exit st
+  intro insn h_exit st h_fuel h_pc_bounds h_prog
   -- Exit instruction (code 0x95) always produces Exit or Error result
-  simp [BpfState.step]
-  -- The proof follows from the definition of step:
-  -- When we decode an Exit instruction, we return (.Exit retval)
-  -- The only way this could be Error is if fuel = 0 or pc out of bounds
-  -- but those also don't return .Continue
-  sorry  -- Would need to unfold step definition and case split
+
+  -- Unfold isExit to get the conditions
+  unfold BpfInsn.isExit at h_exit
+
+  -- Split on getClass and getJmpOp
+  split at h_exit
+  · -- Case: getClass insn = some .JMP AND getJmpOp insn = some .EXIT
+    -- This is the only case where isExit = true
+    rename_i h_class h_jmpop
+
+    -- Key insight: When we decode an Exit instruction (getClass = .JMP, getJmpOp = .EXIT),
+    -- decodeBpfInsn returns some .Exit
+    -- Then step matches on .Exit and returns (.Exit retval, st')
+    -- The proof requires careful unfolding of step with the given preconditions
+    -- to show the result is .Exit, not .Continue
+
+    sorry  -- Deferred: requires simplifying nested match/if expressions in step
+
+  · -- All other cases: isExit = false, contradicts h_exit
+    contradiction
 
 -- Property: Program counter stays in bounds during valid execution
 theorem pc_in_bounds : ∀ (st st' : BpfState) (result : ExecResult),
