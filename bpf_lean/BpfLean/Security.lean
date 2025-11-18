@@ -151,6 +151,28 @@ def bitwiseAnd (a b : AbstractValue) : AbstractValue :=
   , s32_max := 2147483647   -- Int32.max
   }
 
+-- Merge two abstract values (join in abstract interpretation lattice)
+-- This is used at control flow join points to create a safe over-approximation
+def merge (a b : AbstractValue) : AbstractValue :=
+  -- Only bits known in both are known in the result
+  let known := a.known_mask &&& b.known_mask
+  -- For known bits, they must have the same value in both
+  let consistent := ~~~(a.known_value ^^^ b.known_value)
+  let final_known := known &&& consistent
+  let final_value := a.known_value &&& final_known
+
+  { known_mask := final_known
+  , known_value := final_value
+  , umin := min a.umin b.umin
+  , umax := max a.umax b.umax
+  , smin := min a.smin b.smin
+  , smax := max a.smax b.smax
+  , u32_min := min a.u32_min b.u32_min
+  , u32_max := max a.u32_max b.u32_max
+  , s32_min := min a.s32_min b.s32_min
+  , s32_max := max a.s32_max b.s32_max
+  }
+
 end AbstractValue
 
 -- Abstract register state (what the verifier tracks)

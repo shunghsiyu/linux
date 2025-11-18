@@ -260,6 +260,60 @@ def getSuccessors (insn : BpfInstr) (pc : Nat) (progSize : Nat) : List Nat :=
 def isBackEdge (pc target : Nat) : Bool :=
   target <= pc
 
+-- Merge two abstract register states (join operation for lattice)
+def mergeAbstractReg (r1 r2 : AbstractReg) : AbstractReg :=
+  -- If one is not initialized, take the other
+  if !r1.isInit then r2
+  else if !r2.isInit then r1
+  -- If types differ, result is unknown scalar (conservative)
+  else if r1.regType != r2.regType then
+    AbstractReg.scalarUnknown
+  else
+    -- Same type, merge values
+    { regType := r1.regType
+    , value := AbstractValue.merge r1.value r2.value
+    , id := if r1.id == r2.id then r1.id else 0
+    , off := if r1.off == r2.off then r1.off else 0
+    , range := min r1.range r2.range
+    }
+
+-- Merge two abstract register files
+def mergeAbstractRegFile (rf1 rf2 : AbstractRegFile) : AbstractRegFile :=
+  fun r => mergeAbstractReg (rf1 r) (rf2 r)
+
+-- Merge two verifier states (for join points in CFG)
+def mergeVerifierState (st1 st2 : VerifierState) : VerifierState :=
+  { regs := mergeAbstractRegFile st1.regs st2.regs
+  , stackDepth := max st1.stackDepth st2.stackDepth
+  , visited := st1.visited  -- preserve visited info
+  }
+
+-- Check if two abstract values are equal (for fixpoint detection)
+def abstractValueEq (v1 v2 : AbstractValue) : Bool :=
+  v1.known_mask == v2.known_mask &&
+  v1.known_value == v2.known_value &&
+  v1.umin == v2.umin &&
+  v1.umax == v2.umax &&
+  v1.smin == v2.smin &&
+  v1.smax == v2.smax
+
+-- Check if two abstract registers are equal
+def abstractRegEq (r1 r2 : AbstractReg) : Bool :=
+  r1.regType == r2.regType &&
+  abstractValueEq r1.value r2.value &&
+  r1.id == r2.id &&
+  r1.off == r2.off
+
+-- Check if two register files are equal
+def abstractRegFileEq (rf1 rf2 : AbstractRegFile) : Bool :=
+  [BpfReg.R0, .R1, .R2, .R3, .R4, .R5, .R6, .R7, .R8, .R9, .R10].all
+    (fun r => abstractRegEq (rf1 r) (rf2 r))
+
+-- Check if two verifier states are equal (for fixpoint)
+def verifierStateEq (st1 st2 : VerifierState) : Bool :=
+  abstractRegFileEq st1.regs st2.regs &&
+  st1.stackDepth == st2.stackDepth
+
 -- Verify the program is a DAG (no loops)
 partial def checkDAG (prog : Array BpfInsn) (pc : Nat := 0) (visited : Array Bool := Array.replicate prog.size false)
     : Except VerifyError Bool :=
@@ -283,7 +337,72 @@ partial def checkDAG (prog : Array BpfInsn) (pc : Nat := 0) (visited : Array Boo
             pure true
           ) true
 
--- Main verification function
+-- Worklist-based fixpoint iteration for abstract interpretation
+-- states: array of abstract states at each program point (None if not yet visited)
+-- worklist: list of program points to process
+partial def fixpointIteration
+    (prog : Array BpfInsn)
+    (states : Array (Option VerifierState))
+    (worklist : List Nat)
+    (maxIters : Nat := 10000)
+    : Except VerifyError (Array (Option VerifierState)) := do
+  if maxIters == 0 then
+    throw (VerifyError.Other "Fixpoint iteration did not converge")
+
+  match worklist with
+  | [] => pure states  -- Fixpoint reached!
+  | pc :: rest =>
+      -- Get current state at this program point
+      if h : pc < states.size then
+        match states[pc] with
+        | none => throw (VerifyError.Other s!"Uninitialized state at pc {pc}")
+        | some currentState =>
+            -- Decode instruction
+            if h' : pc < prog.size then
+              let bpfInsn := prog[pc]
+              match decodeBpfInsn bpfInsn with
+              | none => throw (VerifyError.InvalidInstruction pc)
+              | some insn =>
+                  -- Verify instruction and compute output state
+                  let stateAfter ← verifyInstruction currentState insn pc
+
+                  -- Get successors
+                  let successors := getSuccessors insn pc prog.size
+
+                  -- For each successor, merge state and add to worklist if changed
+                  let (states', worklist') ← successors.foldlM
+                    (fun (acc : Array (Option VerifierState) × List Nat) succ => do
+                      let (curStates, curWorklist) := acc
+                      if h'' : succ < curStates.size then
+                        match curStates[succ] with
+                        | none =>
+                            -- First time visiting this successor
+                            let newStates := curStates.set! succ (some stateAfter)
+                            pure (newStates, succ :: curWorklist)
+                        | some oldState =>
+                            -- Merge with existing state
+                            let merged := mergeVerifierState oldState stateAfter
+                            -- Check if state changed
+                            if verifierStateEq merged oldState then
+                              -- No change, don't re-add to worklist
+                              pure (curStates, curWorklist)
+                            else
+                              -- State changed, update and re-add to worklist
+                              let newStates := curStates.set! succ (some merged)
+                              pure (newStates, succ :: curWorklist)
+                      else
+                        throw (VerifyError.Other s!"Successor {succ} out of bounds")
+                    )
+                    (states, rest)
+
+                  -- Continue with updated states and worklist
+                  fixpointIteration prog states' worklist' (maxIters - 1)
+            else
+              throw (VerifyError.Other s!"PC {pc} out of bounds")
+      else
+        throw (VerifyError.Other s!"Invalid program counter: {pc}")
+
+-- Main verification function with full abstract interpretation
 partial def verifyProgram (prog : Array BpfInsn) (policy : SecurityPolicy)
     : Except VerifyError SafetyCertificate := do
   -- Check program size
@@ -299,14 +418,14 @@ partial def verifyProgram (prog : Array BpfInsn) (policy : SecurityPolicy)
   -- Check program is a DAG (no loops)
   let _ ← checkDAG prog
 
-  -- TODO: Perform full abstract interpretation
-  -- This would involve:
-  -- 1. Initialize worklist with entry point
-  -- 2. For each instruction in worklist:
-  --    a. Verify instruction with current abstract state
-  --    b. Compute abstract state after instruction
-  --    c. Add successors to worklist if state changed
-  -- 3. Continue until fixpoint
+  -- Perform full abstract interpretation using fixpoint iteration
+  -- Initialize: entry point (pc=0) has initial state, all others are None
+  let initialState := VerifierState.init prog.size
+  let states := Array.replicate prog.size none
+  let states := states.set! 0 (some initialState)
+
+  -- Run fixpoint iteration starting from entry point
+  let _ ← fixpointIteration prog states [0]
 
   pure { policy := policy
        , programSize := prog.size
