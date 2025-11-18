@@ -175,6 +175,96 @@ def merge (a b : AbstractValue) : AbstractValue :=
 
 end AbstractValue
 
+-- Taint tracking for data flow analysis
+inductive TaintSource where
+  | UserInput : TaintSource      -- from user-controlled input (packet, etc.)
+  | MapValue : TaintSource       -- from map lookup
+  | Trusted : TaintSource        -- from trusted source
+  deriving Repr, DecidableEq, Inhabited
+
+-- Taint information
+structure TaintInfo where
+  tainted : Bool
+  source : TaintSource
+  deriving Repr, Inhabited
+
+namespace TaintInfo
+
+def trusted : TaintInfo :=
+  { tainted := false, source := .Trusted }
+
+def fromUserInput : TaintInfo :=
+  { tainted := true, source := .UserInput }
+
+def fromMapValue : TaintInfo :=
+  { tainted := true, source := .MapValue }
+
+-- Taint propagates through operations
+def merge (t1 t2 : TaintInfo) : TaintInfo :=
+  if t1.tainted || t2.tainted then
+    -- If either is tainted, result is tainted
+    -- Source is the more dangerous one (UserInput > MapValue > Trusted)
+    match t1.source, t2.source with
+    | .UserInput, _ => { tainted := true, source := .UserInput }
+    | _, .UserInput => { tainted := true, source := .UserInput }
+    | .MapValue, _ => { tainted := true, source := .MapValue }
+    | _, .MapValue => { tainted := true, source := .MapValue }
+    | _, _ => t1
+  else
+    .trusted
+
+end TaintInfo
+
+-- Pointer bounds information for safety checking
+structure PointerBounds where
+  -- For stack pointers: offset range
+  minOffset : Int
+  maxOffset : Int
+  -- For packet pointers: valid data range
+  validRange : Nat
+  -- Alignment requirement (power of 2)
+  alignment : Nat
+  deriving Repr, Inhabited
+
+namespace PointerBounds
+
+def stack (minOff maxOff : Int) : PointerBounds :=
+  { minOffset := minOff
+  , maxOffset := maxOff
+  , validRange := 0
+  , alignment := 1
+  }
+
+def packet (range : Nat) (align : Nat := 1) : PointerBounds :=
+  { minOffset := 0
+  , maxOffset := (range : Int)
+  , validRange := range
+  , alignment := align
+  }
+
+-- Merge bounds (take intersection for safety)
+def merge (b1 b2 : PointerBounds) : PointerBounds :=
+  { minOffset := max b1.minOffset b2.minOffset
+  , maxOffset := min b1.maxOffset b2.maxOffset
+  , validRange := min b1.validRange b2.validRange
+  , alignment := Nat.gcd b1.alignment b2.alignment
+  }
+
+-- Add constant offset to bounds
+def addOffset (b : PointerBounds) (off : Int) : PointerBounds :=
+  { b with
+    minOffset := b.minOffset + off
+    maxOffset := b.maxOffset + off
+  }
+
+-- Check if offset is within bounds
+def inBounds (b : PointerBounds) (off : Int) (size : Nat) : Bool :=
+  let accessStart := off
+  let accessEnd := off + (size : Int)
+  b.minOffset <= accessStart && accessEnd <= b.maxOffset
+
+end PointerBounds
+
 -- Abstract register state (what the verifier tracks)
 structure AbstractReg where
   regType : RegType
@@ -229,6 +319,65 @@ def isPointer (r : AbstractReg) : Bool :=
   | .NotInit => false
   | .ScalarValue => false
   | _ => true
+
+-- Get taint info for a register (conservative)
+def getTaint (r : AbstractReg) : TaintInfo :=
+  match r.regType with
+  | .NotInit => TaintInfo.trusted
+  | .ScalarValue => TaintInfo.trusted  -- scalars are trusted by default
+  | .PtrToPacket => TaintInfo.fromUserInput  -- packet data is user-controlled
+  | .PtrToMapValue => TaintInfo.fromMapValue
+  | .PtrToMapValueOrNull => TaintInfo.fromMapValue
+  | _ => TaintInfo.trusted
+
+-- Get pointer bounds for a register
+def getBounds (r : AbstractReg) : Option PointerBounds :=
+  match r.regType with
+  | .PtrToStack stackOff =>
+      -- Stack pointer: offset range based on stack offset
+      some (PointerBounds.stack (stackOff - 512) stackOff)
+  | .PtrToPacket =>
+      -- Packet pointer: use range field
+      some (PointerBounds.packet r.range)
+  | .PtrToMapValue =>
+      -- Map value: assume some reasonable bounds
+      some (PointerBounds.stack 0 4096)
+  | _ => none  -- Not a pointer or unknown bounds
+
+-- Check if register can be safely used for memory access
+def canAccessMemory (r : AbstractReg) (off : Int) (size : Nat) : Bool :=
+  match r.getBounds with
+  | none => false  -- Not a valid pointer
+  | some bounds => bounds.inBounds (r.off + off) size
+
+-- Pointer arithmetic: add scalar to pointer
+def addScalar (ptr : AbstractReg) (scalar : AbstractReg) : AbstractReg :=
+  if !ptr.isPointer then
+    scalar  -- Not a pointer, return scalar
+  else if !scalar.isInit then
+    AbstractReg.notInit  -- Uninitialized scalar
+  else
+    -- Add scalar value to pointer offset
+    let newOff := ptr.off + scalar.value.smin.toInt
+    { ptr with off := newOff }
+
+-- Create a register from packet pointer with bounds
+def packetPtr (range : Nat) : AbstractReg :=
+  { regType := .PtrToPacket
+  , value := AbstractValue.unknown
+  , id := 1
+  , off := 0
+  , range := range
+  }
+
+-- Create a tainted scalar (from user input)
+def taintedScalar : AbstractReg :=
+  { regType := .ScalarValue
+  , value := AbstractValue.unknown
+  , id := 0
+  , off := 0
+  , range := 0
+  }
 
 end AbstractReg
 
