@@ -21,7 +21,11 @@ theorem r10_is_frame_pointer : ∀ (st : BpfState) (val : UInt64),
 theorem reg_write_idempotent : ∀ (regs : RegFile) (r : BpfReg) (v : UInt64),
     (regs.write r v).write r v = regs.write r v := by
   intro regs r v
-  sorry
+  funext reg
+  simp [RegFile.write]
+  by_cases h : r = reg
+  · simp [h]
+  · simp [h]
 
 -- Proof: Register read after write returns the written value
 theorem reg_read_after_write : ∀ (regs : RegFile) (r : BpfReg) (v : UInt64),
@@ -114,7 +118,46 @@ theorem fuel_decreases : ∀ (st st' : BpfState) (result : ExecResult),
   -- This would follow from the definition of step
   sorry
 
+-- Lemma: Abstract value merge is commutative
+-- This is important for ensuring lattice join has the right properties
+theorem abstract_value_merge_comm : ∀ (a b : AbstractValue),
+    AbstractValue.merge a b = AbstractValue.merge b a := by
+  intro a b
+  -- Full proof requires:
+  -- - Commutativity of bitwise operations (&&& and ^^^)
+  -- - min/max commutativity (proven below for numeric fields)
+  -- - Bit manipulation lemmas for known_mask and known_value
+  simp [AbstractValue.merge]
+  sorry  -- Bit manipulation proofs deferred
+
+-- Lemma: Abstract value merge is idempotent
+-- This ensures joining a value with itself doesn't lose precision
+theorem abstract_value_merge_idem : ∀ (a : AbstractValue),
+    AbstractValue.merge a a = a := by
+  intro a
+  -- Full proof requires:
+  -- - min a a = a and max a a = a (holds for all numeric types)
+  -- - Bitwise operations: a &&& a = a, a ^^^ a = 0, etc.
+  -- - ~~~0 &&& x = x (complement of zero is all ones)
+  simp [AbstractValue.merge]
+  sorry  -- Bit manipulation proofs deferred
+
+-- Lemma: Register write preserves other registers in abstract reg file
+theorem abstract_reg_write_independent : ∀ (rf : AbstractRegFile) (r1 r2 : BpfReg) (val : AbstractReg),
+    r1 ≠ r2 → (rf.write r1 val).read r2 = rf.read r2 := by
+  intro rf r1 r2 val h_neq
+  simp [AbstractRegFile.read, AbstractRegFile.write, h_neq]
+
+-- Lemma: Verifier state equality is reflexive
+-- This is important for fixpoint detection
+theorem verifier_state_eq_refl : ∀ (st : VerifierState),
+    verifierStateEq st st = true := by
+  intro st
+  -- simp automatically proves this by unfolding definitions and using reflexivity
+  simp [verifierStateEq, abstractRegFileEq, abstractRegEq, abstractValueEq]
+
 -- Soundness: If verifier accepts a program, it's safe to run
+-- This is a key theorem that states verified programs don't have safety violations
 theorem verifier_soundness : ∀ (prog : Array BpfInsn) (policy : SecurityPolicy),
     (∃ cert, verifyProgram prog policy = .ok cert) →
     ∀ (st : BpfState), st.prog = prog →
@@ -126,7 +169,17 @@ theorem verifier_soundness : ∀ (prog : Array BpfInsn) (policy : SecurityPolicy
     | .Continue => False  -- run should not return Continue
     := by
   intro prog policy h_verified st h_prog st' result h_run
-  -- Full proof would require induction on execution steps
+  -- The full proof would proceed by:
+  -- 1. Induction on the number of execution steps
+  -- 2. At each step, show that the concrete state is consistent with the
+  --    abstract state computed by the verifier
+  -- 3. Use the verification result to prove no safety violations occur
+  -- 4. Show that only acceptable errors (fuel exhaustion) can happen
+  --
+  -- This requires:
+  -- - A simulation relation between concrete and abstract states
+  -- - Lemmas showing abstract interpretation is sound (over-approximates)
+  -- - Proof that fixpoint iteration covers all reachable states
   sorry
 
 -- Completeness: Safe programs are accepted by the verifier
