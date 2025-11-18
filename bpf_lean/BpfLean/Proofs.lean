@@ -121,13 +121,35 @@ theorem fuel_decreases : ∀ (st st' : BpfState) (result : ExecResult),
     result = .Continue →
     st'.fuel < st.fuel := by
   intro st st' result h_fuel h_step h_cont
-  -- From the definition of BpfState.step:
+  -- From the definition of BpfState.step (line 306):
   -- let st' := { st with pc := st.pc + 1, fuel := st.fuel - 1 }
-  -- So st'.fuel = st.fuel - 1 < st.fuel when st.fuel > 0
-  simp [BpfState.step] at h_step
-  -- The proof requires unfolding step and showing that in all cases
-  -- where result = .Continue, we have fuel decreased
-  sorry  -- Requires detailed case analysis of step
+  -- All Continue cases return st' or { st' with ... }
+  -- Therefore st'.fuel = st.fuel - 1 < st.fuel when st.fuel > 0
+
+  -- Unfold step definition
+  unfold BpfState.step at h_step
+
+  -- Case split on fuel check
+  split at h_step
+  · -- Case: (st.fuel == 0) = true
+    -- This contradicts h_fuel : st.fuel > 0
+    simp at h_step
+    -- h_step is now: (st, .Error "out of fuel") = (st', result)
+    have : st = st' := h_step.1
+    have : ExecResult.Error "out of fuel" = result := h_step.2
+    rw [← this] at h_cont
+    contradiction
+  · -- Case: (st.fuel == 0) = false, so st.fuel > 0
+    split at h_step
+    · -- Case: pc >= prog.size, returns Error
+      simp at h_step
+      have : result = ExecResult.Error "pc out of bounds" := h_step.2.symm
+      rw [this] at h_cont
+      contradiction
+    · -- Case: valid execution path
+      -- Here all Continue cases use fuel - 1
+      -- The proof is complex as it requires case analysis on all instruction types
+      sorry  -- Need extensive case analysis on instruction decoding and execution
 
 -- Lemma: Abstract value merge is commutative
 -- This is important for ensuring lattice join has the right properties
@@ -159,10 +181,34 @@ theorem abstract_value_merge_idem : ∀ (a : AbstractValue),
   --                = a.known_mask                                (by uint64_and_self)
   -- 2. known_value: similar reasoning
   -- 3. All min/max fields: min a a = a and max a a = a
-  --
-  -- This would follow from the axioms we defined, but requires careful
-  -- structur equality proof.
-  sorry  -- Deferred: requires structural equality with bitwise axioms
+
+  -- Unfold the merge definition
+  unfold AbstractValue.merge
+
+  -- Prove equality using calc chains for each field
+  -- Note: This assumes well-formedness invariant that
+  -- a.known_value only has bits set where a.known_mask is 1
+
+  -- Lemma: final_known = a.known_mask
+  have h_known : a.known_mask &&& a.known_mask &&& ~~~(a.known_value ^^^ a.known_value) = a.known_mask := by
+    calc a.known_mask &&& a.known_mask &&& ~~~(a.known_value ^^^ a.known_value)
+        = a.known_mask &&& a.known_mask &&& ~~~(0 : UInt64) := by rw [uint64_xor_self]
+      _ = a.known_mask &&& a.known_mask &&& 0xFFFFFFFFFFFFFFFF := by rw [uint64_complement_zero]
+      _ = a.known_mask &&& a.known_mask := by rw [uint64_and_ones]
+      _ = a.known_mask := by rw [uint64_and_self]
+
+  -- Lemma: final_value = a.known_value
+  -- This requires the invariant that a.known_value &&& a.known_mask = a.known_value
+  -- (i.e., unknown bits in known_value are zero)
+  have h_value : a.known_value &&& (a.known_mask &&& a.known_mask &&& ~~~(a.known_value ^^^ a.known_value)) = a.known_value := by
+    rw [h_known]
+    -- Need axiom or lemma: a.known_value &&& a.known_mask = a.known_value
+    -- This follows from the well-formedness invariant
+    sorry
+
+  -- For min/max fields: min a a = a and max a a = a (standard library lemmas)
+  -- Full structural equality proof requires showing all 10 fields are equal
+  sorry  -- Complete structural equality construction deferred
 
 -- Lemma: Register write preserves other registers in abstract reg file
 theorem abstract_reg_write_independent : ∀ (rf : AbstractRegFile) (r1 r2 : BpfReg) (val : AbstractReg),
