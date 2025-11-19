@@ -280,11 +280,86 @@ Enables BPF tracing programs to properly handle functions with union parameters.
 **Authors:** Ilya Leoshkevich (s390), Puranjay Mohan (arm64)
 **Version:** v6.18
 
-The `may_goto` instruction support has been extended to additional architectures, improving BPF program portability and enabling bounded loops on more platforms.
+#### Background
+
+The `may_goto` instruction is a conditional pseudo-jump instruction introduced to enable **bounded loops** in BPF programs. Historically, BPF had strict limitations on loops - either completely unrolled at compile-time or using the bounded loop verifier (which has complexity limits). The `may_goto` instruction provides a runtime-checkable way to implement loops with guaranteed termination.
+
+#### How It Works
+
+`may_goto` is defined as:
+```c
+enum bpf_cond_pseudo_jmp {
+    BPF_MAY_GOTO = 0,
+};
+```
+
+The instruction has the encoding: `BPF_JMP | BPF_JCOND` with `src_reg == BPF_MAY_GOTO`
+
+When the JIT compiler encounters a `may_goto` instruction, it generates code that:
+1. Decrements an iteration counter stored on the stack
+2. Checks if the counter reached zero
+3. If zero, breaks out of the loop (calls helper to handle exhaustion)
+4. If non-zero, continues execution
+
+**Example from test (verifier_may_goto_1.c:82-93):**
+```
+Input BPF:
+  .8byte may_goto(offset=2)
+  .8byte may_goto(offset=0)
+  r0 = 1
+  r0 = 2
+  exit
+
+JIT output (xlated):
+  0: *(u64 *)(r10 -16) = 65535    // Initialize counter
+  1: *(u64 *)(r10 -8) = 0
+  2: r11 = *(u64 *)(r10 -16)      // Load counter
+  3: if r11 == 0x0 goto pc+6      // Check if exhausted
+  4: r11 -= 1                      // Decrement
+  5: if r11 != 0x0 goto pc+2      // Continue if not zero
+  6: r11 = -16
+  7: call unknown                  // Handle exhaustion
+  8: *(u64 *)(r10 -16) = r11      // Store counter
+  9: r0 = 1
+  10: r0 = 2
+  11: exit
+```
+
+#### Importance
+
+1. **Bounded Loops:** Enables safe iteration with guaranteed termination, critical for:
+   - Processing variable-length data structures
+   - Network packet parsing with unknown header counts
+   - Iterating over map elements
+
+2. **Verifier Efficiency:** Reduces verifier complexity by moving loop termination checks from verification time to runtime
+
+3. **Program Portability:** Prior JIT support was limited to x86. Adding s390 and arm64 support means:
+   - BPF programs using loops work on more architectures
+   - Cloud workloads on ARM servers can use bounded loops
+   - Mainframe (s390) deployments gain loop support
+
+4. **Performance:** JIT-compiled loops are faster than interpreter-based bounded loops
+
+**Reference:** `tools/testing/selftests/bpf/progs/verifier_may_goto_1.c:1-100`
 
 ---
 
 ## 8. BPF Arena Enhancements
+
+### Background: What is BPF Arena?
+
+BPF Arena is a **shared memory region** between BPF programs and user space, introduced in Linux 6.x. Think of it as a large (up to 4GB), sparsely-populated memory region that both kernel BPF programs and user-space processes can access.
+
+**Key characteristics (kernel/bpf/arena.c:12-39):**
+- **Dual address space mapping:**
+  - User space sees it as normal 64-bit pointers (e.g., `0x7f7d26200000`)
+  - BPF programs access it via 32-bit offsets + base register (e.g., `kern_vm_start + lower_32bits`)
+- **Sparse allocation:** Pages allocated on-demand via fault-in
+- **Use cases:**
+  - Large data structures shared between BPF and user space
+  - Complex data processing requiring more than stack/map memory
+  - User-space post-processing of BPF-collected data
 
 ### Signed Load Support
 
@@ -292,19 +367,64 @@ The `may_goto` instruction support has been extended to additional architectures
 **Authors:** Kumar Kartikeya Dwivedi, Puranjay Mohan
 **Version:** v6.18
 
-#### Features:
-- Support for signed loads from BPF arena memory regions
-- Enhanced RISC-V JIT support for atomic operations in arena
-- Arena fault reporting to BPF error stream
+#### What Are Signed Loads?
+
+"Signed loads" refers to **sign-extended load operations** (LDSX instruction). When loading values smaller than 64-bit from memory, the CPU can either:
+- **Zero-extend:** Fill upper bits with zeros (unsigned interpretation)
+- **Sign-extend:** Fill upper bits with the sign bit (signed interpretation)
+
+**Example (verifier_ldsx.c:20-35):**
+```c
+// Loading a signed 8-bit value -2 (0xfe):
+*(u64 *)(r10 - 8) = 0x3fe;
+r0 = *(s8 *)(r10 - 8);  // Sign-extended load
+// Result: r0 = 0xfffffffffffffffe (-2 as 64-bit)
+
+// If it were unsigned:
+r0 = *(u8 *)(r10 - 8);
+// Result: r0 = 0x00000000000000fe (254 as 64-bit)
+```
+
+#### Why This Matters for Arena
+
+1. **Correct Integer Handling:**
+   - Arena programs often process structured data with signed integers
+   - Without sign-extension, `int8_t` or `int16_t` values would be misinterpreted
+   - Example: Temperature sensor data using signed bytes (-40°C to +85°C)
+
+2. **C Semantics Compatibility:**
+   - User space and BPF programs can share C structures with signed fields
+   - BPF correctly interprets negative values from arena memory
+   - Enables complex data processing with proper arithmetic
+
+3. **Architecture Support:**
+   - Tests show support for: arm64, x86, riscv64, arm, s390, loongarch
+   - JIT compilers generate proper sign-extension instructions
+   - RISC-V gained atomic operation support for arena
+
+#### Enhanced Features
+
+**RISC-V JIT Enhancement:**
+- Atomic operations (atomic add, compare-and-swap) now work in arena
+- Enables lock-free data structures in shared memory
+- Critical for multi-core BPF programs coordinating via arena
+
+**Fault Reporting:**
+- Arena page faults (invalid access) reported to BPF error stream
+- Improves debugging of out-of-bounds or unmapped access
+- Example: Accessing arena offset beyond allocated range
 
 **References:**
-- `tools/testing/selftests/bpf/progs/verifier_arena_large.c` (modified)
-- `tools/testing/selftests/bpf/progs/verifier_ldsx.c` (178 line additions)
+- `kernel/bpf/arena.c:12-39` - Arena implementation
+- `tools/testing/selftests/bpf/progs/verifier_ldsx.c:1-60` - Sign-extend tests
+- `include/linux/btf.h:77` - `KF_ARENA_RET` and `KF_ARENA_ARG1` flags
 
-### Fault Reporting
-**Author:** Puranjay Mohan
+#### Practical Impact
 
-Arena memory faults are now reported through the BPF error stream, improving debuggability of arena-using programs.
+Enables real-world use cases like:
+- **High-frequency trading:** Shared price data structures between BPF packet processor and user-space trading engine
+- **ML inference:** BPF programs writing features to arena for user-space model inference
+- **Monitoring dashboards:** Aggregated metrics in arena consumed by visualization tools
 
 ---
 
@@ -314,29 +434,245 @@ Arena memory faults are now reported through the BPF error stream, improving deb
 **Author:** Mykyta Yatsenko
 **Version:** v6.18
 
-### Overview
-New kfuncs `bpf_task_work_schedule*()` enable scheduling deferred execution of BPF callbacks in the context of specific tasks using the kernel's task_work infrastructure.
+### Background: What is Task Work?
 
-### Use Cases
-- Deferred processing in specific task context
-- User-space upcalls from BPF
-- Async event handling tied to specific processes
+**Task work** is a Linux kernel mechanism to defer work to run in the context of a **specific process/task**. Unlike workqueues (which run in kernel threads) or softirqs (which run in interrupt context), task work runs when that specific task returns to user space or is about to sleep.
 
-### Implementation Notes
-- Uses kernel task_work infrastructure
-- Proper RCU and task lifetime management
-- Context-aware execution guarantees
+**Key properties:**
+- Runs with the target task's credentials, namespaces, and memory context
+- Can safely access user-space memory of that task
+- Two notification modes:
+  - `TWA_SIGNAL`: Send a signal to wake the task
+  - `TWA_RESUME`: Run when task naturally resumes
+
+### BPF Task Work Kfuncs
+
+Two new kfuncs enable BPF programs to schedule callbacks in task context:
+
+```c
+__bpf_kfunc int bpf_task_work_schedule_signal_impl(
+    struct task_struct *task,
+    struct bpf_task_work *tw,
+    void *map__map,
+    bpf_task_work_callback_t callback,
+    void *aux__prog)
+
+__bpf_kfunc int bpf_task_work_schedule_resume_impl(
+    struct task_struct *task,
+    struct bpf_task_work *tw,
+    void *map__map,
+    bpf_task_work_callback_t callback,
+    void *aux__prog)
+```
+
+**Reference:** `kernel/bpf/helpers.c:4182-4207`
+
+### How It Works
+
+**Implementation (kernel/bpf/helpers.c:4127-4169):**
+
+1. **BPF program calls kfunc:** Specifies target task and callback subprogram
+2. **Context creation:** Allocates `bpf_task_work_ctx` with:
+   - Reference to target task (preventing premature exit)
+   - Reference to BPF program (preventing unload)
+   - Callback function pointer
+   - Map containing the task_work structure
+3. **Scheduling:** Uses `init_irq_work()` to safely schedule from any context (even NMI)
+4. **Execution:** When task returns to user space:
+   - Task work callback runs in task's context
+   - BPF subprogram executes
+   - Context and references cleaned up
+
+**Example from test (task_work_stress.c:39-61):**
+```c
+SEC("syscall")
+int schedule_task_work(void *ctx)
+{
+    struct elem *work;
+    int key = bpf_ktime_get_ns() % ENTRIES;
+
+    work = bpf_map_lookup_elem(&hmap, &key);
+    if (!work) {
+        bpf_map_update_elem(&hmap, &key, &empty_work, BPF_NOEXIST);
+        work = bpf_map_lookup_elem(&hmap, &key);
+    }
+
+    // Schedule callback to run in current task's context
+    err = bpf_task_work_schedule_signal_impl(
+        bpf_get_current_task_btf(),
+        &work->tw, &hmap, process_work, NULL);
+
+    return 0;
+}
+
+static int process_work(struct bpf_map *map, void *key, void *value)
+{
+    // This runs in the target task's context!
+    __sync_fetch_and_add(&callback_success, 1);
+    return 0;
+}
+```
+
+### Importance and Use Cases
+
+1. **User-Space Upcalls:**
+   - BPF program can trigger work in specific process context
+   - Example: Network filter notifying application about blocked connection
+   - Runs with correct UID, capabilities, and namespaces
+
+2. **Deferred Processing:**
+   - Heavy computation deferred from packet processing fast path
+   - Example: Detailed flow analysis after initial packet classification
+   - Prevents blocking packet receive queues
+
+3. **Application-Specific Hooks:**
+   - Per-process monitoring and control
+   - Example: Memory profiler triggering callback in target process
+   - Can access process-specific resources safely
+
+4. **Async Event Delivery:**
+   - Kernel events delivered to specific applications
+   - Example: Filesystem watcher notifying specific daemon
+   - Better than signals for complex data passing
+
+5. **Safe User Memory Access:**
+   - Can use `copy_to_user()` since running in task context
+   - Example: Writing monitoring data to application's buffer
+   - Avoids complex synchronization with user space
+
+### Safety Mechanisms
+
+**Lifetime Management (kernel/bpf/helpers.c:4219-4238):**
+- Reference counting prevents task exit while work pending
+- Program pinning prevents BPF unload during execution
+- Map reference keeps storage valid
+- IRQ work for safe cancellation from any context
+
+**Concurrency Control:**
+- State machine tracks: `BPF_TW_PENDING`, `BPF_TW_SCHEDULED`, `BPF_TW_FREED`
+- Prevents double-scheduling or use-after-free
+- Handles races between schedule/cancel/delete
+
+**Reference:**
+- `kernel/bpf/helpers.c:4127-4238` - Implementation
+- `tools/testing/selftests/bpf/progs/task_work_stress.c` - Stress test with concurrent schedule/delete
 
 ---
 
 ## 10. KFuncs and Helper Enhancements
 
-### 10.1 RCU Protection Enforcement
+### 10.1 Enhanced RCU Protection Enforcement
 
 **Author:** Kumar Kartikeya Dwivedi
 **Version:** v6.18
 
-Enhanced enforcement of RCU protection for `KF_RCU_PROTECTED` kfuncs, ensuring proper synchronization.
+#### Background: RCU in BPF
+
+**RCU (Read-Copy-Update)** is a Linux synchronization primitive that allows:
+- Readers to access data structures without locks
+- Writers to update safely while readers are active
+- Deferred reclamation of old versions after readers finish
+
+In BPF context, RCU is critical because:
+- BPF programs run in kernel with minimal overhead
+- Traditional locks would severely impact performance
+- Many kernel structures are RCU-protected (task lists, network routes, etc.)
+
+#### KF_RCU vs KF_RCU_PROTECTED
+
+**Before:** Two separate flags with unclear semantics:
+- `KF_RCU`: Indicates arguments must be RCU-protected pointers
+- No enforcement of RCU critical section
+
+**Now (include/linux/btf.h:77):**
+```c
+#define KF_RCU          (1 << 7)  /* kfunc takes rcu or trusted pointer arguments */
+#define KF_RCU_PROTECTED (1 << 11) /* kfunc must be in RCU critical section */
+```
+
+#### What Changed
+
+**KF_RCU_PROTECTED Enforcement (Documentation/bpf/kfuncs.rst:338-351):**
+
+1. **Mandatory RCU Critical Section:**
+   - Kfunc marked with `KF_RCU_PROTECTED` **must** be called within RCU read-side critical section
+   - Non-sleepable programs: Assumed to be in RCU section (entire program)
+   - Sleepable programs: Must explicitly call `bpf_rcu_read_lock()`
+
+2. **Return Pointer Protection:**
+   - If kfunc returns a pointer, it's guaranteed RCU-protected
+   - Pointer only valid while RCU critical section active
+   - Verifier tracks and enforces this lifetime
+
+3. **Distinction from KF_RCU:**
+   - `KF_RCU`: "My arguments should be RCU pointers" (callee requirement)
+   - `KF_RCU_PROTECTED`: "Call me in RCU section, my return is RCU-protected" (caller requirement)
+
+#### Example Scenario
+
+**Before (unsafe):**
+```c
+// Sleepable BPF program
+SEC("lsm.s/file_open")
+int file_monitor(struct file *file)
+{
+    struct task_struct *task;
+
+    // BAD: kfunc returns RCU-protected pointer
+    task = bpf_get_current_task_btf();  // KF_RCU_PROTECTED kfunc
+
+    // Sleepable program might sleep here!
+    bpf_copy_from_user(...);
+
+    // DANGER: task might be freed (no RCU protection)
+    char *comm = task->comm;  // Use-after-free!
+}
+```
+
+**After (enforced):**
+```c
+// Sleepable BPF program
+SEC("lsm.s/file_open")
+int file_monitor(struct file *file)
+{
+    struct task_struct *task;
+
+    bpf_rcu_read_lock();  // Explicit RCU critical section
+    task = bpf_get_current_task_btf();  // OK: in RCU section
+
+    char *comm = task->comm;  // OK: still protected
+    bpf_rcu_read_unlock();
+
+    // CAN'T use task here - verifier error!
+    // task pointer marked as potentially invalid
+}
+```
+
+#### Importance
+
+1. **Memory Safety:**
+   - Prevents use-after-free bugs in sleepable BPF programs
+   - Verifier catches violations at load time
+   - No runtime crashes from RCU violations
+
+2. **Correctness Guarantees:**
+   - Returned pointers have well-defined lifetime
+   - Clear contract between kfunc and caller
+   - Reduces subtle bugs in complex programs
+
+3. **Performance:**
+   - Non-sleepable programs have no overhead (implicit RCU)
+   - Sleepable programs only pay cost where needed
+   - Enables safe access to kernel data structures
+
+4. **Developer Experience:**
+   - Clear error messages when RCU section missing
+   - Documentation of kfunc requirements via flags
+   - Type system enforces memory safety
+
+**Reference:**
+- `include/linux/btf.h:77` - Flag definitions
+- `Documentation/bpf/kfuncs.rst:338-351` - KF_RCU_PROTECTED documentation
 
 ### 10.2 New String Kfunc
 
@@ -345,14 +681,29 @@ __bpf_kfunc int bpf_strcasecmp(const char *s1, const char *s2)
 ```
 
 **Author:** Rong Tao
-Case-insensitive string comparison kfunc.
+**Purpose:** Case-insensitive string comparison
+
+**Use Cases:**
+- HTTP header parsing (case-insensitive per RFC)
+- Configuration file processing
+- Protocol name matching
 
 ### 10.3 Map Operation Enhancement
 
 **Feature:** `lookup_and_delete_elem` for `BPF_MAP_STACK_TRACE`
 **Author:** Tao Chen
 
-Added atomic lookup-and-delete operation for stack trace maps, improving performance for trace consumers.
+**What It Does:**
+Atomic operation that:
+1. Looks up a stack trace by key
+2. Deletes it from the map
+3. Returns the stack trace data
+
+**Why It Matters:**
+- **Performance:** Single operation vs two (lookup + delete)
+- **Atomicity:** No race condition where trace might be overwritten between lookup and delete
+- **Memory Management:** Efficient cleanup of consumed stack traces
+- **Use Case:** Profiling tools that process and discard stack traces
 
 **Test:** `tools/testing/selftests/bpf/prog_tests/bpf_obj_pinning.c` (modified)
 
@@ -366,18 +717,166 @@ Added atomic lookup-and-delete operation for stack trace maps, improving perform
 **Author:** Jiri Olsa
 **Version:** v6.18
 
-Allows uprobe-attached BPF programs to modify context registers, enabling:
-- Return value modification
-- Argument injection
-- Control flow manipulation
+#### Background: What Are Uprobes?
+
+**Uprobes (user-space probes)** allow tracing and modifying user-space application execution:
+- Set breakpoint at any instruction in user program
+- Kernel traps when breakpoint hit
+- BPF program runs with access to CPU registers (`pt_regs`)
+
+**Traditional Limitation:** Could only **read** register values
+
+#### What Changed
+
+BPF programs attached to uprobes can now **write** to the `pt_regs` context, enabling modification of:
+
+1. **Function Arguments** (before function executes)
+2. **Return Values** (at function return)
+3. **Instruction Pointer** (control flow)
+4. **Other Registers** (local variables, flags)
+
+**Example (kprobe_write_ctx.c:8-22):**
+```c
+#if defined(__TARGET_ARCH_x86)
+SEC("kprobe")
+int kprobe_write_ctx(struct pt_regs *ctx)
+{
+    ctx->ax = 0;  // Modify RAX register
+    return 0;
+}
+
+SEC("kprobe.multi")
+int kprobe_multi_write_ctx(struct pt_regs *ctx)
+{
+    ctx->ax = 0;  // Works for kprobe.multi too
+    return 0;
+}
+#endif
+```
+
+#### Use Cases and Importance
+
+1. **Error Injection Testing:**
+   ```c
+   // Force allocation to fail
+   SEC("uprobe//lib/libc.so.6:malloc")
+   int inject_malloc_failure(struct pt_regs *ctx)
+   {
+       if (should_inject_failure())
+           ctx->ax = 0;  // Return NULL
+       return 0;
+   }
+   ```
+   - Test error handling paths
+   - Chaos engineering for applications
+   - No need to modify application source
+
+2. **Security Instrumentation:**
+   ```c
+   // Modify file path in open() call
+   SEC("uprobe//lib/libc.so.6:open")
+   int redirect_file_access(struct pt_regs *ctx)
+   {
+       char *path = (char *)ctx->di;  // First argument
+       if (strcmp(path, "/etc/passwd") == 0)
+           ctx->di = (u64)"/tmp/fake_passwd";  // Redirect
+       return 0;
+   }
+   ```
+   - Sandbox applications
+   - Honeypot implementation
+   - Access control without kernel modifications
+
+3. **Dynamic Patching:**
+   ```c
+   // Fix bug in running application
+   SEC("uprobe//usr/bin/app:buggy_function")
+   int fix_calculation(struct pt_regs *ctx)
+   {
+       int arg = ctx->di;
+       if (arg < 0)
+           ctx->di = 0;  // Clamp negative values
+       return 0;
+   }
+   ```
+   - Hot-patch production bugs
+   - No application restart required
+   - Test fixes before binary update
+
+4. **Performance Optimization:**
+   ```c
+   // Cache function results
+   SEC("uprobe//usr/lib/libcrypto.so:expensive_hash")
+   int cache_hash(struct pt_regs *ctx)
+   {
+       void *input = (void *)ctx->di;
+       void *cached = bpf_map_lookup_elem(&cache, input);
+       if (cached) {
+           ctx->ax = (u64)cached;  // Return cached value
+           ctx->ip += offset_to_ret;  // Skip function
+       }
+       return 0;
+   }
+   ```
+   - Memoization without code changes
+   - Short-circuit expensive operations
+
+5. **Debugging and Analysis:**
+   ```c
+   // Modify loop counter for testing
+   SEC("uprobe//usr/bin/app:process_batch")
+   int limit_iterations(struct pt_regs *ctx)
+   {
+       ctx->cx = 10;  // Force only 10 iterations
+       return 0;
+   }
+   ```
+   - Test with smaller datasets
+   - Reduce iteration for profiling
+   - Control execution flow
 
 ### 11.2 Kprobe Write Context
 
-Similar capability for kprobe programs to write to context.
+**Similar Capability** for kernel probes:
+- Modify kernel function arguments
+- Change return values
+- Useful for kernel testing and fault injection
+
+**Example Use:**
+```c
+// Test filesystem error handling
+SEC("kprobe/kmalloc")
+int inject_allocation_failure(struct pt_regs *ctx)
+{
+    if (test_failure_injection())
+        ctx->ax = 0;  // Return NULL
+    return 0;
+}
+```
+
+#### Safety and Limitations
+
+**Verifier Restrictions:**
+- Can only modify registers, not arbitrary memory
+- Type checking ensures register writes are safe
+- Can't corrupt kernel/user memory directly
+- Architecture-specific (different registers per arch)
+
+**Potential Risks:**
+- Application might crash if registers set incorrectly
+- Must understand calling convention (x86-64 SysV ABI, ARM AAPCS, etc.)
+- Instruction pointer modification can cause jumps to invalid code
+
+**Best Practices:**
+- Thoroughly test before production use
+- Understand target function's semantics
+- Use for controlled testing/debugging environments
+- Consider using return value modification over argument changes
 
 **Tests:**
-- `tools/testing/selftests/bpf/prog_tests/bpf_obj_id.c` (modified)
-- Uprobe and kprobe context modification tests
+- `tools/testing/selftests/bpf/progs/kprobe_write_ctx.c` - Basic functionality
+- `tools/testing/selftests/bpf/prog_tests/attach_probe.c` - Uprobe IP register test
+- `tools/testing/selftests/bpf/prog_tests/kprobe_multi_test.c` - Kprobe multi write test
 
 ---
 
