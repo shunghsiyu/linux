@@ -101,7 +101,8 @@ theorem decode_exit_instruction : ∀ (insn : BpfInsn),
 
 -- Axiom: Step function behavior for Exit instructions
 -- When step is called with valid fuel, valid pc, and an Exit instruction,
--- the result is either Exit (normal) or Error (if R0 uninitialized), never Continue
+-- the result is Exit (never Error or Continue)
+-- TODO: Prove by case analysis on all match branches in step
 axiom step_exit_returns_exit : ∀ (st : BpfState) (insn : BpfInsn),
     st.fuel > 0 →
     st.pc < st.prog.size →
