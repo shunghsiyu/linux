@@ -4,12 +4,14 @@
   This module provides utilities and proven properties for bit manipulation
   operations on UInt64.
 
-  Note: Many bitwise operation properties require detailed bit-level reasoning
-  or use of BitVec. We provide axioms for the key properties we need and
-  defer the full proofs.
+  Note: UInt64 bitwise operations in Lean 4 are implemented as primitives.
+  For now, we axiomatize the standard algebraic properties.
+  A full formalization would prove these from the BitVec representation.
 -/
 
--- Commutativity axioms (these are true but require bit-level proofs)
+-- Commutativity axioms
+-- These are true by the definition of bitwise operations, but proving them
+-- requires reasoning about the underlying BitVec/Fin representation
 axiom uint64_xor_comm (a b : UInt64) : (a ^^^ b) = (b ^^^ a)
 axiom uint64_and_comm (a b : UInt64) : (a &&& b) = (b &&& a)
 axiom uint64_or_comm (a b : UInt64) : (a ||| b) = (b ||| a)
@@ -45,10 +47,10 @@ axiom uint64_and_assoc (a b c : UInt64) : (a &&& b) &&& c = a &&& (b &&& c)
 axiom uint64_or_assoc (a b c : UInt64) : (a ||| b) ||| c = a ||| (b ||| c)
 axiom uint64_xor_assoc (a b c : UInt64) : (a ^^^ b) ^^^ c = a ^^^ (b ^^^ c)
 
--- Min/max idempotence (standard properties)
+-- Min/max properties
+-- These should exist in Lean 4's standard library, but for now we axiomatize them
+-- TODO: Replace with std library theorems (e.g., from Init.Data.Ord or similar)
 axiom min_self {α : Type} [Min α] (a : α) : min a a = a
 axiom max_self {α : Type} [Max α] (a : α) : max a a = a
-
--- Min/max commutativity
 axiom min_comm {α : Type} [Min α] (a b : α) : min a b = min b a
 axiom max_comm {α : Type} [Max α] (a b : α) : max a b = max b a

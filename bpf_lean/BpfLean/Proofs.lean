@@ -88,12 +88,16 @@ theorem execution_deterministic : ∀ (prog : Array BpfInsn) (fuel : Nat),
   intro prog fuel
   rfl
 
--- Axiom: Exit instruction decoding
+-- Theorem: Exit instruction decoding
 -- When getClass = .JMP and getJmpOp = .EXIT, decodeBpfInsn returns some .Exit
-axiom decode_exit_instruction : ∀ (insn : BpfInsn),
+theorem decode_exit_instruction : ∀ (insn : BpfInsn),
     insn.getClass = some .JMP →
     insn.getJmpOp = some .EXIT →
-    decodeBpfInsn insn = some .Exit
+    decodeBpfInsn insn = some .Exit := by
+  intro insn h_class h_jmpop
+  -- Unfold decodeBpfInsn and simplify with the hypotheses
+  unfold decodeBpfInsn
+  rw [h_class, h_jmpop]
 
 -- Axiom: Step function behavior for Exit instructions
 -- When step is called with valid fuel, valid pc, and an Exit instruction,
