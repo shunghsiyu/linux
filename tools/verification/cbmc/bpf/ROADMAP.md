@@ -2,11 +2,14 @@
 
 ## Current Status
 
-**Completed: 16 verification harnesses**
+**Completed: 21 verification harnesses**
 
 ### Verifier Register Tracking (2/~30)
 - ✅ coerce_reg_to_size_sx - Sign extension tracking
-- ✅ scalar_min_max_add - 64-bit addition tracking
+
+### Scalar Arithmetic Operations (6/10) - Phase 2 Completed
+- ✅ scalar_min_max_add, scalar_min_max_sub, scalar_min_max_mul (64-bit)
+- ✅ scalar32_min_max_add, scalar32_min_max_sub, scalar32_min_max_mul (32-bit)
 
 ### Tnum Operations (14/14) - ✅ COMPLETE
 - ✅ tnum_add, tnum_sub, tnum_mul, tnum_neg (Arithmetic)
@@ -35,33 +38,18 @@ Completed operations:
 
 ---
 
-### 🔥 Phase 2: Scalar Arithmetic Operations (5 operations)
+### ✅ Phase 2: Scalar Arithmetic Operations (5 operations) - COMPLETED
 
-**Why:** These are the most commonly used operations in BPF programs.
+**Achievement:** Formal verification of core scalar min/max tracking operations
 
-1. **scalar_min_max_sub** - 64-bit subtraction
-   - **Complexity:** Medium (underflow handling)
-   - **Impact:** High (pointer arithmetic)
+Completed operations:
+1. ✅ **scalar32_min_max_add** - 32-bit addition with overflow handling
+2. ✅ **scalar_min_max_sub** - 64-bit subtraction with underflow handling
+3. ✅ **scalar32_min_max_sub** - 32-bit subtraction with underflow handling
+4. ✅ **scalar_min_max_mul** - 64-bit multiplication with complex overflow cases
+5. ✅ **scalar32_min_max_mul** - 32-bit multiplication with complex overflow cases
 
-2. **scalar32_min_max_sub** - 32-bit subtraction
-   - **Complexity:** Medium
-   - **Impact:** Medium
-
-3. **scalar_min_max_mul** - 64-bit multiplication
-   - **Complexity:** High (overflow cases)
-   - **Impact:** High (array indexing)
-   - **Unique challenge:** Multiple overflow scenarios
-
-4. **scalar32_min_max_mul** - 32-bit multiplication
-   - **Complexity:** High
-   - **Impact:** Medium
-
-5. **scalar32_min_max_add** - 32-bit addition
-   - **Complexity:** Low (similar to 64-bit)
-   - **Impact:** Medium
-
-**Estimated effort:** 4-5 hours
-**Value:** ⭐⭐⭐⭐ (Common operations)
+**Value delivered:** ⭐⭐⭐⭐ Verification of the most common BPF program operations
 
 ---
 

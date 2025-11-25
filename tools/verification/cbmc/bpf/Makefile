@@ -72,7 +72,16 @@ help:
 	@echo ""
 	@echo "Verifier Register Tracking:"
 	@echo "  coerce_reg_to_size_sx_verify - Verify sign extension tracking (unary op)"
-	@echo "  scalar_min_max_add_verify    - Verify addition tracking (binary op)"
+	@echo ""
+	@echo "Scalar Arithmetic Operations:"
+	@echo "  64-bit:"
+	@echo "    scalar_min_max_add_verify  - Verify 64-bit addition tracking"
+	@echo "    scalar_min_max_sub_verify  - Verify 64-bit subtraction tracking"
+	@echo "    scalar_min_max_mul_verify  - Verify 64-bit multiplication tracking"
+	@echo "  32-bit:"
+	@echo "    scalar32_min_max_add_verify - Verify 32-bit addition tracking"
+	@echo "    scalar32_min_max_sub_verify - Verify 32-bit subtraction tracking"
+	@echo "    scalar32_min_max_mul_verify - Verify 32-bit multiplication tracking"
 	@echo ""
 	@echo "Tnum (Tristate Number) Operations:"
 	@echo "  Arithmetic:"
@@ -162,6 +171,116 @@ scalar_min_max_add_simple: scalar_min_max_add_verify.c $(BUILD_DIR)/verifier.got
 	$(GOTO_CC) $(BUILD_DIR)/scalar_min_max_add_simple.goto $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar_min_max_add_simple_full.goto
 	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
 	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_add_simple_full.goto
+
+# scalar32_min_max_add verification targets
+$(BUILD_DIR)/scalar32_min_max_add_verify.goto: scalar32_min_max_add_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building scalar32_min_max_add verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c scalar32_min_max_add_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar32_min_max_add_full.goto
+
+scalar32_min_max_add_verify: $(BUILD_DIR)/scalar32_min_max_add_verify.goto
+	@echo "$(GREEN)Running CBMC verification for scalar32_min_max_add...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_add_full.goto
+
+scalar32_min_max_add_trace: $(BUILD_DIR)/scalar32_min_max_add_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_add_full.goto
+
+scalar32_min_max_add_simple: scalar32_min_max_add_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c scalar32_min_max_add_verify.c -o $(BUILD_DIR)/scalar32_min_max_add_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/scalar32_min_max_add_simple.goto $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar32_min_max_add_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_add_simple_full.goto
+
+# scalar_min_max_sub verification targets
+$(BUILD_DIR)/scalar_min_max_sub_verify.goto: scalar_min_max_sub_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building scalar_min_max_sub verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c scalar_min_max_sub_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar_min_max_sub_full.goto
+
+scalar_min_max_sub_verify: $(BUILD_DIR)/scalar_min_max_sub_verify.goto
+	@echo "$(GREEN)Running CBMC verification for scalar_min_max_sub...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_sub_full.goto
+
+scalar_min_max_sub_trace: $(BUILD_DIR)/scalar_min_max_sub_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_sub_full.goto
+
+scalar_min_max_sub_simple: scalar_min_max_sub_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c scalar_min_max_sub_verify.c -o $(BUILD_DIR)/scalar_min_max_sub_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/scalar_min_max_sub_simple.goto $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar_min_max_sub_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_sub_simple_full.goto
+
+# scalar32_min_max_sub verification targets
+$(BUILD_DIR)/scalar32_min_max_sub_verify.goto: scalar32_min_max_sub_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building scalar32_min_max_sub verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c scalar32_min_max_sub_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar32_min_max_sub_full.goto
+
+scalar32_min_max_sub_verify: $(BUILD_DIR)/scalar32_min_max_sub_verify.goto
+	@echo "$(GREEN)Running CBMC verification for scalar32_min_max_sub...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_sub_full.goto
+
+scalar32_min_max_sub_trace: $(BUILD_DIR)/scalar32_min_max_sub_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_sub_full.goto
+
+scalar32_min_max_sub_simple: scalar32_min_max_sub_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c scalar32_min_max_sub_verify.c -o $(BUILD_DIR)/scalar32_min_max_sub_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/scalar32_min_max_sub_simple.goto $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar32_min_max_sub_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_sub_simple_full.goto
+
+# scalar_min_max_mul verification targets
+$(BUILD_DIR)/scalar_min_max_mul_verify.goto: scalar_min_max_mul_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building scalar_min_max_mul verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c scalar_min_max_mul_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar_min_max_mul_full.goto
+
+scalar_min_max_mul_verify: $(BUILD_DIR)/scalar_min_max_mul_verify.goto
+	@echo "$(GREEN)Running CBMC verification for scalar_min_max_mul...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_mul_full.goto
+
+scalar_min_max_mul_trace: $(BUILD_DIR)/scalar_min_max_mul_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_mul_full.goto
+
+scalar_min_max_mul_simple: scalar_min_max_mul_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c scalar_min_max_mul_verify.c -o $(BUILD_DIR)/scalar_min_max_mul_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/scalar_min_max_mul_simple.goto $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar_min_max_mul_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar_min_max_mul_simple_full.goto
+
+# scalar32_min_max_mul verification targets
+$(BUILD_DIR)/scalar32_min_max_mul_verify.goto: scalar32_min_max_mul_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building scalar32_min_max_mul verification harness...$(NC)"
+	$(GOTO_CC) $(CFLAGS) -c scalar32_min_max_mul_verify.c -o $@
+	$(GOTO_CC) $@ $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar32_min_max_mul_full.goto
+
+scalar32_min_max_mul_verify: $(BUILD_DIR)/scalar32_min_max_mul_verify.goto
+	@echo "$(GREEN)Running CBMC verification for scalar32_min_max_mul...$(NC)"
+	@echo "This may take several minutes depending on complexity..."
+	$(CBMC) $(CBMC_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_mul_full.goto
+
+scalar32_min_max_mul_trace: $(BUILD_DIR)/scalar32_min_max_mul_verify.goto
+	@echo "$(GREEN)Running CBMC with trace output...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_mul_full.goto
+
+scalar32_min_max_mul_simple: scalar32_min_max_mul_verify.c $(BUILD_DIR)/verifier.goto
+	@echo "$(YELLOW)Building with simplified constraints...$(NC)"
+	$(GOTO_CC) $(CFLAGS) $(SIMPLE_FLAGS) -c scalar32_min_max_mul_verify.c -o $(BUILD_DIR)/scalar32_min_max_mul_simple.goto
+	$(GOTO_CC) $(BUILD_DIR)/scalar32_min_max_mul_simple.goto $(BUILD_DIR)/verifier.goto $(BUILD_DIR)/tnum.goto -o $(BUILD_DIR)/scalar32_min_max_mul_simple_full.goto
+	@echo "$(GREEN)Running CBMC with simplified constraints...$(NC)"
+	$(CBMC) $(CBMC_FLAGS) $(TRACE_FLAGS) --function main $(BUILD_DIR)/scalar32_min_max_mul_simple_full.goto
 
 # tnum_add verification targets
 $(BUILD_DIR)/tnum_add_verify.goto: tnum_add_verify.c $(BUILD_DIR)/verifier.goto
@@ -494,6 +613,11 @@ clean:
 
 .PHONY: coerce_reg_to_size_sx_verify coerce_reg_to_size_sx_trace coerce_reg_to_size_sx_simple \
         scalar_min_max_add_verify scalar_min_max_add_trace scalar_min_max_add_simple \
+        scalar32_min_max_add_verify scalar32_min_max_add_trace scalar32_min_max_add_simple \
+        scalar_min_max_sub_verify scalar_min_max_sub_trace scalar_min_max_sub_simple \
+        scalar32_min_max_sub_verify scalar32_min_max_sub_trace scalar32_min_max_sub_simple \
+        scalar_min_max_mul_verify scalar_min_max_mul_trace scalar_min_max_mul_simple \
+        scalar32_min_max_mul_verify scalar32_min_max_mul_trace scalar32_min_max_mul_simple \
         tnum_add_verify tnum_add_trace tnum_add_simple \
         tnum_sub_verify tnum_sub_trace tnum_sub_simple \
         tnum_mul_verify tnum_mul_trace tnum_mul_simple \

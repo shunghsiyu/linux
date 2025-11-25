@@ -69,7 +69,7 @@ make coerce_reg_to_size_sx_simple
 
 ### What is being verified?
 
-We verify two categories of functions:
+We verify three categories of functions:
 
 #### 1. Register State Tracking Functions
 
@@ -79,11 +79,23 @@ For `coerce_reg_to_size_sx()`, we verify:
 
 This ensures the verifier's abstract interpretation correctly tracks all possible values after a sign-extension instruction.
 
-For `scalar_min_max_add()`, we verify:
+#### 2. Scalar Arithmetic Operations
 
-**Property**: For any valid register states containing values `a` and `b`, after calling `scalar_min_max_add(dst, src)`, the output state must contain `a + b` (with overflow).
+These functions track value ranges through arithmetic operations. We have verification for:
 
-#### 2. Tnum (Tristate Number) Operations
+**64-bit operations:**
+- `scalar_min_max_add(dst, src)` - Addition with overflow
+- `scalar_min_max_sub(dst, src)` - Subtraction with underflow
+- `scalar_min_max_mul(dst, src)` - Multiplication with overflow
+
+**32-bit operations:**
+- `scalar32_min_max_add(dst, src)` - 32-bit addition
+- `scalar32_min_max_sub(dst, src)` - 32-bit subtraction
+- `scalar32_min_max_mul(dst, src)` - 32-bit multiplication
+
+**Example Property** (for `scalar_min_max_sub`): For any valid register states containing values `a` and `b`, after calling `scalar_min_max_sub(dst, src)`, the output state must contain `a - b` (with underflow wrapping).
+
+#### 3. Tnum (Tristate Number) Operations
 
 Tnums are the foundation of BPF verifier's bit-level abstract interpretation. Each bit can be:
 - **0** - known to be zero
