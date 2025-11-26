@@ -30,7 +30,9 @@ CBMC := cbmc
 CFLAGS := -I$(KERNEL_INCLUDE) \
           -I$(KERNEL_ROOT)/arch/x86/include \
           -I$(KERNEL_ROOT)/arch/x86/include/generated \
+          -I$(KERNEL_ROOT)/arch/x86/include/uapi \
           -I$(KERNEL_ROOT)/include/uapi \
+          -I$(KERNEL_ROOT)/include/generated/uapi \
           -D__KERNEL__ \
           -DCONFIG_X86_64 \
           -DCONFIG_64BIT \
