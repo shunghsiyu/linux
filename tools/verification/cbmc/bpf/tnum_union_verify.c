@@ -22,32 +22,10 @@
  *   make -C tools/verification/cbmc/bpf tnum_union_simple
  */
 
-#include <linux/types.h>
-#include <linux/tnum.h>
+#include "tnum_helpers.h"
 
 /* Forward declarations */
 extern struct tnum tnum_union(struct tnum a, struct tnum b);
-
-/* Helper: Check if a concrete value is represented by a tnum */
-static bool tnum_contains(struct tnum t, u64 v)
-{
-	return (v & ~t.mask) == t.value;
-}
-
-/* Helper: Create a symbolic tnum */
-static struct tnum symbolic_tnum(void)
-{
-	struct tnum t;
-	t.value = __CPROVER_unsigned_long_long_input();
-	t.mask = __CPROVER_unsigned_long_long_input();
-	return t;
-}
-
-/* Helper: Check if a tnum is valid */
-static bool valid_tnum(struct tnum t)
-{
-	return (t.value & t.mask) == 0;
-}
 
 /*
  * Main verification harness
