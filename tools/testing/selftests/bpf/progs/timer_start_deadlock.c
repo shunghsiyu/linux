@@ -27,13 +27,14 @@ static int timer_cb(void *map, int *key, struct elem *value)
 	return 0;
 }
 
-SEC("tp_btf/hrtimer_cancel")
-int BPF_PROG(tp_hrtimer_cancel, struct hrtimer *hrtimer)
+SEC("tp_btf/hrtimer_start")
+int BPF_PROG(tp_hrtimer_start, struct hrtimer *hrtimer, enum hrtimer_mode mode,
+	     bool was_armed)
 {
 	struct bpf_timer *timer;
 	int key = 0;
 
-	if (!in_timer_start)
+	if (!in_timer_start || !was_armed)
 		return 0;
 
 	tp_called = 1;
@@ -42,6 +43,11 @@ int BPF_PROG(tp_hrtimer_cancel, struct hrtimer *hrtimer)
 	/*
 	 * Call bpf_timer_start() from the tracepoint within hrtimer logic
 	 * on the same timer to make sure it doesn't deadlock.
+	 *
+	 * The tracepoint fires inside lock_hrtimer_base() (raw_spin_lock_irqsave),
+	 * so IRQs are disabled here.  defer_timer_wq_op() must detect this via
+	 * irqs_disabled() and defer the hrtimer_start() call to irq_work instead
+	 * of attempting to acquire the already-held lock.
 	 */
 	bpf_timer_start(timer, 1000000000, 0);
 	return 0;
@@ -59,8 +65,9 @@ int start_timer(void *ctx)
 	bpf_timer_set_callback(timer, timer_cb);
 
 	/*
-	 * call hrtimer_start() twice, so that 2nd call does
-	 * remove_hrtimer() and trace_hrtimer_cancel() tracepoint.
+	 * Call hrtimer_start() twice.  The 2nd call re-arms an already-armed
+	 * timer, which fires trace_hrtimer_start with was_armed=true while
+	 * still holding the hrtimer base lock (IRQs disabled).
 	 */
 	in_timer_start = 1;
 	bpf_timer_start(timer, 1000000000, 0);
