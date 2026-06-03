@@ -1,0 +1,57 @@
+name: Build Linux Kernel
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+env:
+  ARCH: x86_64
+  KBUILD_OUTPUT: .kbuild
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libelf-dev \
+            libssl-dev bc pahole ccache
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: kernel-ccache-${{ env.ARCH }}-${{ github.sha }}
+          restore-keys: |
+            kernel-ccache-${{ env.ARCH }}-
+
+      - name: Configure ccache
+        run: |
+          ccache --max-size=2G
+          ccache -z
+
+      - name: Configure Kernel
+        run: |
+          mkdir -p ${{ env.KBUILD_OUTPUT }}
+          
+          # Combine the requested configuration files
+          cat tools/testing/selftests/bpf/config \
+              tools/testing/selftests/bpf/config.x86_64 \
+              tools/testing/selftests/bpf/config.vm > ${{ env.KBUILD_OUTPUT }}/.config
+          
+          # Use olddefconfig to apply the combined configs to the defaults
+          make O=${{ env.KBUILD_OUTPUT }} ARCH=${{ env.ARCH }} olddefconfig
+
+      - name: Build Kernel
+        run: |
+          make O=${{ env.KBUILD_OUTPUT }} ARCH=${{ env.ARCH }} CC="ccache gcc" -j$(nproc) all
+
+      - name: ccache statistics
+        run: ccache -s
