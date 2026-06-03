@@ -22,17 +22,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Fetch full history so git-restore-mtime can read the commit logs
+          fetch-depth: 0
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libelf-dev \
-            libssl-dev bc pahole ccache
+            libssl-dev bc pahole ccache git-restore-mtime
+
+      - name: Restore Git file timestamps
+        run: git restore-mtime
 
       - name: Setup ccache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ccache
+          path: |
+            ~/.cache/ccache
+            ${{ env.KBUILD_OUTPUT }}
           key: kernel-ccache-${{ env.ARCH }}-${{ github.sha }}
           restore-keys: |
             kernel-ccache-${{ env.ARCH }}-
