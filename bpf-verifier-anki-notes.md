@@ -58,3 +58,58 @@ which can far exceed the static size because branches re-walk instructions.
 **Q:** At program entry, what is the type of R1?
 **A:** `PTR_TO_CTX` — a pointer to the `bpf_context` for that program type.
 (`verifier.c:83`.)
+
+---
+
+## 3. Value tracking (scalars)
+
+**Q:** What *two* complementary representations does the verifier keep for every
+`SCALAR_VALUE` register, and why two?
+**A:** (1) a **tnum** (`var_off`) tracking knowledge per *bit*, and (2) a set of
+**min/max bounds** (`smin/smax/umin/umax_value` plus 32-bit `s32/u32_*`
+variants) tracking the value as a *range*. They capture different shapes of
+knowledge — bit-level facts vs. contiguous ranges — and the verifier
+cross-refines one from the other. (`bpf_reg_state`, `bpf_verifier.h:117`.)
+
+**Q:** What is a *tnum* (tracked / tristate number) and how is it stored?
+**A:** A `struct tnum { u64 value; u64 mask; }` where each bit is either *known*
+(0 or 1) or *unknown* (x). `mask` has a 1 in every unknown-bit position; `value`
+holds the known bits. So `tnum_const(C)` has `mask == 0`; `tnum_unknown` has
+`mask == all ones`. Arithmetic ops propagate the unknown bits so the result
+covers every possible value of the operands. (`tnum.h`.)
+
+**Q:** Give a concrete example of knowledge a tnum captures that a min/max range
+*cannot*.
+**A:** Alignment. If the low 3 bits are known-zero (`mask` has 0s there,
+`value` 0s there), the tnum proves the value is 8-byte aligned — a fact about
+*which* values are possible, not their span. A range like `0..N` says nothing
+about alignment.
+
+**Q:** Give a concrete example of knowledge a min/max range captures that a tnum
+represents poorly.
+**A:** A tight contiguous bound like `0 <= x <= 5`. tnums can only represent
+sets that are "bit-superset" shaped, so the smallest tnum containing {0..5}
+also admits 6 and 7. The unsigned/signed min-max fields express `5` exactly.
+
+**Q:** Why is `tnum_range(min, max)` described as an *over-approximation*?
+**A:** Because a tnum can only describe a bitwise superset, not an arbitrary
+interval. `tnum_range(0, 2)` is represented as {0,1,2,**3**} — it includes 3
+even though 3 is outside the intended range. (`tnum.h` comment on
+`tnum_range`.)
+
+**Q:** What does it mean for a scalar register to be *precise*, and what is the
+default?
+**A:** *Precise* means the verifier must enforce that register's exact value /
+range during state comparison (it can't be generalized away). Scalars start
+**imprecise** by default — except for unprivileged programs, where
+`reg->precise` is forced true (`reg->precise = !env->bpf_capable`). Imprecision
+is what makes state pruning effective. (`verifier.c:1806`.)
+
+**Q:** Why does the verifier track signed *and* unsigned bounds (and 32-bit
+variants) separately?
+**A:** Because the same 64 bits mean different ordered ranges under signed vs.
+unsigned interpretation, and BPF has both signed and unsigned compares plus
+32-bit sub-register ALU ops. Keeping `smin/smax`, `umin/umax`, and the `s32/u32`
+versions lets a comparison or operation tighten exactly the interpretation it
+constrains, then propagate back to the others. (`bpf_reg_state`,
+`bpf_verifier.h:123`.)
