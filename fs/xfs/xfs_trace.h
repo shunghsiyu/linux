@@ -792,6 +792,7 @@ DEFINE_BUF_EVENT(xfs_buf_backing_folio);
 DEFINE_BUF_EVENT(xfs_buf_backing_kmem);
 DEFINE_BUF_EVENT(xfs_buf_backing_vmalloc);
 DEFINE_BUF_EVENT(xfs_buf_backing_fallback);
+DEFINE_BUF_EVENT(xfs_buf_find);
 
 /* not really buffer traces, but the buf provides useful information */
 DEFINE_BUF_EVENT(xfs_btree_corrupt);
@@ -837,7 +838,6 @@ DECLARE_EVENT_CLASS(xfs_buf_flags_class,
 DEFINE_EVENT(xfs_buf_flags_class, name, \
 	TP_PROTO(struct xfs_buf *bp, unsigned flags, unsigned long caller_ip), \
 	TP_ARGS(bp, flags, caller_ip))
-DEFINE_BUF_FLAGS_EVENT(xfs_buf_find);
 DEFINE_BUF_FLAGS_EVENT(xfs_buf_get);
 DEFINE_BUF_FLAGS_EVENT(xfs_buf_read);
 DEFINE_BUF_FLAGS_EVENT(xfs_buf_readahead);
@@ -1896,6 +1896,7 @@ DEFINE_SIMPLE_IO_EVENT(xfs_zero_eof);
 DEFINE_SIMPLE_IO_EVENT(xfs_end_io_direct_write);
 DEFINE_SIMPLE_IO_EVENT(xfs_file_splice_read);
 DEFINE_SIMPLE_IO_EVENT(xfs_zoned_map_blocks);
+DEFINE_SIMPLE_IO_EVENT(xfs_bounce_reread);
 
 DECLARE_EVENT_CLASS(xfs_itrunc_class,
 	TP_PROTO(struct xfs_inode *ip, xfs_fsize_t new_size),
@@ -6030,32 +6031,54 @@ DEFINE_HEALTHMON_EVENT(xfs_healthmon_detach);
 DEFINE_HEALTHMON_EVENT(xfs_healthmon_report_unmount);
 
 #define XFS_HEALTHMON_TYPE_STRINGS \
+	{ XFS_HEALTHMON_RUNNING,	"run" }, \
 	{ XFS_HEALTHMON_LOST,		"lost" }, \
 	{ XFS_HEALTHMON_UNMOUNT,	"unmount" }, \
+	{ XFS_HEALTHMON_SHUTDOWN,	"shutdown" }, \
 	{ XFS_HEALTHMON_SICK,		"sick" }, \
 	{ XFS_HEALTHMON_CORRUPT,	"corrupt" }, \
 	{ XFS_HEALTHMON_HEALTHY,	"healthy" }, \
-	{ XFS_HEALTHMON_SHUTDOWN,	"shutdown" }
+	{ XFS_HEALTHMON_MEDIA_ERROR,	"media" }, \
+	{ XFS_HEALTHMON_BUFREAD,	"bufread" }, \
+	{ XFS_HEALTHMON_BUFWRITE,	"bufwrite" }, \
+	{ XFS_HEALTHMON_DIOREAD,	"dioread" }, \
+	{ XFS_HEALTHMON_DIOWRITE,	"diowrite" }, \
+	{ XFS_HEALTHMON_DATALOST,	"datalost" }
 
 #define XFS_HEALTHMON_DOMAIN_STRINGS \
 	{ XFS_HEALTHMON_MOUNT,		"mount" }, \
 	{ XFS_HEALTHMON_FS,		"fs" }, \
 	{ XFS_HEALTHMON_AG,		"ag" }, \
 	{ XFS_HEALTHMON_INODE,		"inode" }, \
-	{ XFS_HEALTHMON_RTGROUP,	"rtgroup" }
+	{ XFS_HEALTHMON_RTGROUP,	"rtgroup" }, \
+	{ XFS_HEALTHMON_DATADEV,	"datadev" }, \
+	{ XFS_HEALTHMON_RTDEV,		"rtdev" }, \
+	{ XFS_HEALTHMON_LOGDEV,		"logdev" }, \
+	{ XFS_HEALTHMON_FILERANGE,	"filerange" }
 
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_RUNNING);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_LOST);
-TRACE_DEFINE_ENUM(XFS_HEALTHMON_SHUTDOWN);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_UNMOUNT);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_SHUTDOWN);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_SICK);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_CORRUPT);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_HEALTHY);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_MEDIA_ERROR);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_BUFREAD);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_BUFWRITE);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_DIOREAD);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_DIOWRITE);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_DATALOST);
 
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_MOUNT);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_FS);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_AG);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_INODE);
 TRACE_DEFINE_ENUM(XFS_HEALTHMON_RTGROUP);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_DATADEV);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_RTDEV);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_LOGDEV);
+TRACE_DEFINE_ENUM(XFS_HEALTHMON_FILERANGE);
 
 DECLARE_EVENT_CLASS(xfs_healthmon_event_class,
 	TP_PROTO(const struct xfs_healthmon *hm,
@@ -6139,8 +6162,8 @@ DEFINE_EVENT(xfs_healthmon_event_class, name, \
 	TP_PROTO(const struct xfs_healthmon *hm, \
 		 const struct xfs_healthmon_event *event), \
 	TP_ARGS(hm, event))
-DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_insert);
-DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_push);
+DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_insert_head);
+DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_insert_tail);
 DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_pop);
 DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_format);
 DEFINE_HEALTHMONEVENT_EVENT(xfs_healthmon_format_overflow);
@@ -6437,6 +6460,47 @@ TRACE_EVENT(xfs_verify_media_error,
 		  __entry->daddr,
 		  __entry->bbcount,
 		  __entry->error)
+);
+
+TRACE_EVENT(xfs_bmap_replace_cow_mapping,
+	TP_PROTO(struct xfs_inode *ip, const struct xfs_bmbt_irec *got,
+		 const struct xfs_bmbt_irec *rep),
+	TP_ARGS(ip, got, rep),
+	TP_STRUCT__entry(
+		__field(dev_t, dev)
+		__field(xfs_ino_t, ino)
+		__field(xfs_fsblock_t, startblock)
+		__field(xfs_fileoff_t, startoff)
+		__field(xfs_filblks_t, blockcount)
+		__field(xfs_exntst_t, state)
+		__field(xfs_fileoff_t, new_startoff)
+		__field(xfs_fsblock_t, new_startblock)
+		__field(xfs_extlen_t, new_blockcount)
+		__field(xfs_exntst_t, new_state)
+	),
+	TP_fast_assign(
+		__entry->dev = ip->i_mount->m_super->s_dev;
+		__entry->ino = I_INO(ip);
+		__entry->startoff = got->br_startoff;
+		__entry->startblock = got->br_startblock;
+		__entry->blockcount = got->br_blockcount;
+		__entry->state = got->br_state;
+		__entry->new_startoff = rep->br_startoff;
+		__entry->new_startblock = rep->br_startblock;
+		__entry->new_blockcount = rep->br_blockcount;
+		__entry->new_state = rep->br_state;
+	),
+	TP_printk("dev %d:%d ino 0x%llx startoff 0x%llx startblock 0x%llx fsbcount 0x%llx state 0x%x new_startoff 0x%llx new_startblock 0x%llx new_fsbcount 0x%x new_state 0x%x",
+		  MAJOR(__entry->dev), MINOR(__entry->dev),
+		  __entry->ino,
+		  __entry->startoff,
+		  __entry->startblock,
+		  __entry->blockcount,
+		  __entry->state,
+		  __entry->new_startoff,
+		  __entry->new_startblock,
+		  __entry->new_blockcount,
+		  __entry->new_state)
 );
 
 #endif /* _TRACE_XFS_H */

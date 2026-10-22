@@ -16,7 +16,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/string.h>
-#include <linux/unaligned.h>
 #include <linux/wordpart.h>
 
 static const struct md5_block_state md5_iv = {
@@ -271,7 +270,7 @@ void hmac_md5_final(struct hmac_md5_ctx *ctx, u8 out[MD5_DIGEST_SIZE])
 	cpu_to_le32_array(ctx->ostate.h, ARRAY_SIZE(ctx->ostate.h));
 	memcpy(out, ctx->ostate.h, MD5_DIGEST_SIZE);
 
-	memzero_explicit(ctx, sizeof(*ctx));
+	hmac_md5_zeroize_ctx(ctx);
 }
 EXPORT_SYMBOL_GPL(hmac_md5_final);
 
@@ -297,20 +296,6 @@ void hmac_md5_usingrawkey(const u8 *raw_key, size_t raw_key_len,
 	hmac_md5_final(&ctx, out);
 }
 EXPORT_SYMBOL_GPL(hmac_md5_usingrawkey);
-
-#ifdef md5_mod_init_arch
-static int __init md5_mod_init(void)
-{
-	md5_mod_init_arch();
-	return 0;
-}
-subsys_initcall(md5_mod_init);
-
-static void __exit md5_mod_exit(void)
-{
-}
-module_exit(md5_mod_exit);
-#endif
 
 MODULE_DESCRIPTION("MD5 and HMAC-MD5 library functions");
 MODULE_LICENSE("GPL");

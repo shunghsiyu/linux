@@ -181,8 +181,9 @@ Code  Seq#    Include File                                             Comments
 'M'   01-03  drivers/scsi/megaraid/megaraid_sas.h
 'M'   00-0F  drivers/video/fsl-diu-fb.h                                conflict!
 'N'   00-1F  drivers/usb/scanner.h
-'N'   40-7F  drivers/block/nvme.c
-'N'   80-8F  uapi/linux/ntsync.h                                       NT synchronization primitives
+'N'   40-7F  uapi/linux/nvme_ioctl.h
+'N'   80-83  uapi/linux/ntsync.h and uapi/linux/nvme_ioctl.h           conflict!
+'N'   84-8F  uapi/linux/ntsync.h                                       NT synchronization primitives
                                                                        <mailto:wine-devel@winehq.org>
 'O'   00-06  mtd/ubi-user.h                                            UBI
 'P'   all    linux/soundcard.h                                         conflict!
@@ -270,7 +271,6 @@ Code  Seq#    Include File                                             Comments
 'm'   00-09  linux/mmtimer.h                                           conflict!
 'm'   all    linux/mtio.h                                              conflict!
 'm'   all    linux/soundcard.h                                         conflict!
-'m'   all    linux/synclink.h                                          conflict!
 'm'   00-19  drivers/message/fusion/mptctl.h                           conflict!
 'm'   00     drivers/scsi/megaraid/megaraid_ioctl.h                    conflict!
 'n'   00-7F  linux/ncp_fs.h and fs/ncpfs/ioctl.c
@@ -341,13 +341,14 @@ Code  Seq#    Include File                                             Comments
 0xA2  all    uapi/linux/acrn.h                                         ACRN hypervisor
 0xA3  80-8F                                                            Port ACL  in development:
                                                                        <mailto:tlewis@mindspring.com>
-0xA3  90-9F  linux/dtlk.h
 0xA4  00-1F  uapi/linux/tee.h                                          Generic TEE subsystem
 0xA4  00-1F  uapi/asm/sgx.h                                            <mailto:linux-sgx@vger.kernel.org>
 0xA5  01-05  linux/surface_aggregator/cdev.h                           Microsoft Surface Platform System Aggregator
                                                                        <mailto:luzmaximilian@gmail.com>
 0xA5  20-2F  linux/surface_aggregator/dtx.h                            Microsoft Surface DTX driver
                                                                        <mailto:luzmaximilian@gmail.com>
+0xA6  00-0F  uapi/linux/alloc_tag.h                                    Memory allocation profiling
+                                                                       <mailto:surenb@google.com>
 0xAA  00-3F  linux/uapi/linux/userfaultfd.h
 0xAB  00-1F  linux/nbd.h
 0xAC  00-1F  linux/raw.h
@@ -399,7 +400,7 @@ Code  Seq#    Include File                                             Comments
 0xDD  00-3F                                                            ZFCP device driver see drivers/s390/scsi/
                                                                        <mailto:aherrman@de.ibm.com>
 0xE5  00-3F  linux/fuse.h
-0xEC  00-01  drivers/platform/chrome/cros_ec_dev.h                     ChromeOS EC driver
+0xEC  00-01  linux/platform_data/cros_ec_chardev.h                     ChromeOS EC driver
 0xEE  00-09  uapi/linux/pfrut.h                                        Platform Firmware Runtime Update and Telemetry
 0xF3  00-3F  drivers/usb/misc/sisusbvga/sisusb.h                       sisfb (in development)
                                                                        <mailto:thomas@winischhofer.net>

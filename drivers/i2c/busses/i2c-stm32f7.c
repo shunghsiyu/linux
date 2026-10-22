@@ -464,8 +464,13 @@ static int stm32f7_i2c_compute_timing(struct stm32f7_i2c_dev *i2c_dev,
 {
 	struct stm32f7_i2c_spec *specs;
 	u32 p_prev = STM32F7_PRESC_MAX;
-	u32 i2cclk = DIV_ROUND_CLOSEST(NSEC_PER_SEC,
-				       setup->clock_src);
+	/*
+	 * Truncate instead of rounding to closest: if the clock period is
+	 * overestimated, the computed SCL timings will come out shorter on
+	 * the wire, which can push the bus above the target rate and below
+	 * the spec's tLOW/tHIGH minimums.
+	 */
+	u32 i2cclk = NSEC_PER_SEC / setup->clock_src;
 	u32 i2cbus = DIV_ROUND_CLOSEST(NSEC_PER_SEC,
 				       setup->speed_freq);
 	u32 clk_error_prev = i2cbus;
@@ -2199,7 +2204,7 @@ static int stm32f7_i2c_probe(struct platform_device *pdev)
 					IRQF_ONESHOT,
 					pdev->name, i2c_dev);
 	if (ret)
-		return dev_err_probe(&pdev->dev, ret, "Failed to request irq event\n");
+		return ret;
 
 	if (!i2c_dev->setup.single_it_line) {
 		irq_error = platform_get_irq(pdev, 1);
@@ -2212,7 +2217,7 @@ static int stm32f7_i2c_probe(struct platform_device *pdev)
 						IRQF_ONESHOT,
 						pdev->name, i2c_dev);
 		if (ret)
-			return dev_err_probe(&pdev->dev, ret, "Failed to request irq error\n");
+			return ret;
 	}
 
 	ret = stm32f7_i2c_setup_timing(i2c_dev, &i2c_dev->setup);

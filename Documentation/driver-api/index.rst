@@ -105,6 +105,7 @@ Subsystem-specific APIs
    interconnect
    ipmb
    ipmi
+   issei/index
    libata
    mailbox
    md/index
@@ -138,6 +139,7 @@ Subsystem-specific APIs
    sm501
    soundwire/index
    spi
+   steal-governor
    surface_aggregator/index
    switchtec
    sync_file

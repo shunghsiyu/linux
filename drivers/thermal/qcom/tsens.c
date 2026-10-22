@@ -1192,6 +1192,9 @@ static const struct of_device_id tsens_table[] = {
 		.compatible = "qcom,msm8939-tsens",
 		.data = &data_8939,
 	}, {
+		.compatible = "qcom,msm8952-tsens",
+		.data = &data_8952,
+	}, {
 		.compatible = "qcom,msm8956-tsens",
 		.data = &data_8956,
 	}, {
@@ -1258,10 +1261,7 @@ static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
 							dev_name(&pdev->dev),
 							priv);
 
-		if (ret)
-			dev_err(&pdev->dev, "%s: failed to get irq\n",
-				__func__);
-		else
+		if (!ret)
 			*irq_num = irq;
 	}
 

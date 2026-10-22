@@ -40,6 +40,9 @@ struct kernel_cpustat {
 	seqcount_t	idle_sleeptime_seq;
 	u64		idle_entrytime;
 	u64		idle_stealtime[2];
+	u64		idle_dyntick_entry;
+	u64		idle_tick_period;
+	u64		idle_tick_overlap;
 #endif
 	u64		cpustat[NR_STATS];
 };
@@ -107,8 +110,32 @@ static inline unsigned long kstat_cpu_irqs_sum(unsigned int cpu)
 }
 
 #ifdef CONFIG_NO_HZ_COMMON
+
+#ifdef CONFIG_HAVE_VIRT_CPU_ACCOUNTING_IDLE
+
+static inline void kcpustat_dyntick_start(u64 now) { }
+static inline void kcpustat_dyntick_stop(u64 now, u64 tick_start) { }
+static inline void kcpustat_irq_enter(u64 now) { }
+static inline void kcpustat_irq_exit(u64 now) { }
+static inline bool kcpustat_idle_dyntick(void) { return false; }
+
+extern u64 arch_kcpustat_field_idle(int cpu);
+extern u64 arch_kcpustat_field_iowait(int cpu);
+
+static inline u64 kcpustat_field_idle(int cpu)
+{
+	return arch_kcpustat_field_idle(cpu);
+}
+
+static inline u64 kcpustat_field_iowait(int cpu)
+{
+	return arch_kcpustat_field_iowait(cpu);
+}
+
+#else /* !CONFIG_HAVE_VIRT_CPU_ACCOUNTING_IDLE */
+
 extern void kcpustat_dyntick_start(u64 now);
-extern void kcpustat_dyntick_stop(u64 now);
+extern void kcpustat_dyntick_stop(u64 now, u64 tick_start);
 extern void kcpustat_irq_enter(u64 now);
 extern void kcpustat_irq_exit(u64 now);
 extern u64 kcpustat_field_idle(int cpu);
@@ -118,6 +145,9 @@ static inline bool kcpustat_idle_dyntick(void)
 {
 	return __this_cpu_read(kernel_cpustat.idle_dyntick);
 }
+
+#endif /* !CONFIG_HAVE_VIRT_CPU_ACCOUNTING_IDLE */
+
 #else
 static inline u64 kcpustat_field_idle(int cpu)
 {
@@ -168,6 +198,17 @@ static inline void kcpustat_cpu_fetch(struct kernel_cpustat *dst, int cpu)
 	kcpustat_cpu_fetch_default(dst, cpu);
 }
 #endif /* !CONFIG_VIRT_CPU_ACCOUNTING_GEN */
+
+static inline u64 kcpustat_field_total(enum cpu_usage_stat usage, const struct cpumask *cpus)
+{
+	u64 total = 0;
+	int cpu;
+
+	for_each_cpu(cpu, cpus)
+		total += kcpustat_field(usage, cpu);
+
+	return total;
+}
 
 extern void account_user_time(struct task_struct *, u64);
 extern void account_guest_time(struct task_struct *, u64);

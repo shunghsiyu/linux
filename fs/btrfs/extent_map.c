@@ -866,13 +866,13 @@ void btrfs_drop_extent_map_range(struct btrfs_inode *inode, u64 start, u64 end,
 			goto next;
 		}
 
-		flags = em->flags;
 		/*
 		 * In case we split the extent map, we want to preserve the
 		 * EXTENT_FLAG_LOGGING flag on our extent map, but we don't want
 		 * it on the new extent maps.
 		 */
-		em->flags &= ~(EXTENT_FLAG_PINNED | EXTENT_FLAG_LOGGING);
+		flags = em->flags & ~EXTENT_FLAG_LOGGING;
+		em->flags &= ~EXTENT_FLAG_PINNED;
 		modified = !list_empty(&em->list);
 
 		/*
@@ -1218,6 +1218,14 @@ static struct btrfs_inode *find_first_inode_to_shrink(struct btrfs_root *root,
 			break;
 
 		tree = &inode->extent_tree;
+
+		/*
+		 * Most inodes have no extent maps, so check without the lock.
+		 * The race is harmless: a false empty just defers the inode to
+		 * a later scan, and a false non-empty is caught under the lock.
+		 */
+		if (data_race(RB_EMPTY_ROOT(&tree->root)))
+			goto next;
 
 		/*
 		 * We want to be fast so if the lock is busy we don't want to

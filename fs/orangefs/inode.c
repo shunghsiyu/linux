@@ -652,8 +652,8 @@ vm_fault_t orangefs_page_mkwrite(struct vm_fault *vmf)
 		wr = folio_get_private(folio);
 		if (uid_eq(wr->uid, current_fsuid()) &&
 		    gid_eq(wr->gid, current_fsgid())) {
-			wr->pos = page_offset(vmf->page);
-			wr->len = PAGE_SIZE;
+			wr->pos = folio_pos(folio);
+			wr->len = folio_size(folio);
 			goto okay;
 		} else {
 			if (orangefs_launder_folio(folio)) {
@@ -667,8 +667,8 @@ vm_fault_t orangefs_page_mkwrite(struct vm_fault *vmf)
 		ret = VM_FAULT_LOCKED|VM_FAULT_RETRY;
 		goto out;
 	}
-	wr->pos = page_offset(vmf->page);
-	wr->len = PAGE_SIZE;
+	wr->pos = folio_pos(folio);
+	wr->len = folio_size(folio);
 	wr->uid = current_fsuid();
 	wr->gid = current_fsgid();
 	folio_attach_private(folio, wr);
@@ -828,7 +828,7 @@ int __orangefs_setattr_mode(struct dentry *dentry, struct iattr *iattr)
 /*
  * Change attributes of an object referenced by dentry.
  */
-int orangefs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+int orangefs_setattr(const struct mnt_idmap *idmap, struct dentry *dentry,
 		     struct iattr *iattr)
 {
 	int ret;
@@ -848,7 +848,7 @@ out:
 /*
  * Obtain attributes of an object given a dentry
  */
-int orangefs_getattr(struct mnt_idmap *idmap, const struct path *path,
+int orangefs_getattr(const struct mnt_idmap *idmap, const struct path *path,
 		     struct kstat *stat, u32 request_mask, unsigned int flags)
 {
 	int ret;
@@ -872,7 +872,7 @@ int orangefs_getattr(struct mnt_idmap *idmap, const struct path *path,
 	return ret;
 }
 
-int orangefs_permission(struct mnt_idmap *idmap,
+int orangefs_permission(const struct mnt_idmap *idmap,
 			struct inode *inode, int mask)
 {
 	int ret;
@@ -934,7 +934,7 @@ static int orangefs_fileattr_get(struct dentry *dentry, struct file_kattr *fa)
 	return 0;
 }
 
-static int orangefs_fileattr_set(struct mnt_idmap *idmap,
+static int orangefs_fileattr_set(const struct mnt_idmap *idmap,
 				 struct dentry *dentry, struct file_kattr *fa)
 {
 	u64 val = 0;

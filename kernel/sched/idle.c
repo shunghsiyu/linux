@@ -487,8 +487,11 @@ static void put_prev_task_idle(struct rq *rq, struct task_struct *prev, struct t
 	update_rq_avg_idle(rq);
 }
 
-static void set_next_task_idle(struct rq *rq, struct task_struct *next, bool first)
+static void set_next_task_idle(struct rq *rq, struct task_struct *next, enum snt_e type)
 {
+	if (type == SNT_REPICK)
+		return;
+
 	update_idle_core(rq);
 	scx_update_idle(rq, true, true);
 	schedstat_inc(rq->sched_goidle);
@@ -503,7 +506,13 @@ static void set_next_task_idle(struct rq *rq, struct task_struct *next, bool fir
 
 struct task_struct *pick_task_idle(struct rq *rq, struct rq_flags *rf)
 {
-	scx_update_idle(rq, true, false);
+	/*
+	 * Notify scx only on an idle-to-idle re-pick (the cpu was already idle).
+	 * A real task->idle transition is delivered by set_next_task_idle(), so
+	 * calling here too would duplicate it.
+	 */
+	if (scx_enabled() && is_idle_task(rq->curr))
+		scx_update_idle(rq, true, false);
 	return rq->idle;
 }
 

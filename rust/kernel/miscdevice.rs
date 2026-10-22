@@ -11,16 +11,25 @@
 use crate::{
     bindings,
     device::Device,
-    error::{to_result, Error, Result, VTABLE_DEFAULT_ERROR},
-    ffi::{c_int, c_long, c_uint, c_ulong},
-    fs::{File, Kiocb},
-    iov::{IovIterDest, IovIterSource},
+    error::to_result,
+    fs::{
+        File,
+        Kiocb, //
+    },
+    iov::{
+        IovIterDest,
+        IovIterSource, //
+    },
     mm::virt::VmaNew,
+    module::this_module,
     prelude::*,
     seq_file::SeqFile,
-    types::{ForeignOwnable, Opaque},
+    types::{
+        ForeignOwnable,
+        Opaque, //
+    }, //
 };
-use core::{marker::PhantomData, pin::Pin};
+use core::marker::PhantomData;
 
 /// Options for creating a misc device.
 #[derive(Copy, Clone)]
@@ -133,37 +142,33 @@ pub trait MiscDevice: Sized {
     /// the VMA initialization by calling methods of `vma`. If the function does not return an
     /// error, the kernel will complete initialization of the VMA according to the properties of
     /// `vma`.
+    #[optional]
     fn mmap(
         _device: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _file: &File,
         _vma: &VmaNew,
-    ) -> Result {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+    ) -> Result;
 
     /// Read from this miscdevice.
-    fn read_iter(_kiocb: Kiocb<'_, Self::Ptr>, _iov: &mut IovIterDest<'_>) -> Result<usize> {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+    #[optional]
+    fn read_iter(_kiocb: Kiocb<'_, Self::Ptr>, _iov: &mut IovIterDest<'_>) -> Result<usize>;
 
     /// Write to this miscdevice.
-    fn write_iter(_kiocb: Kiocb<'_, Self::Ptr>, _iov: &mut IovIterSource<'_>) -> Result<usize> {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+    #[optional]
+    fn write_iter(_kiocb: Kiocb<'_, Self::Ptr>, _iov: &mut IovIterSource<'_>) -> Result<usize>;
 
     /// Handler for ioctls.
     ///
     /// The `cmd` argument is usually manipulated using the utilities in [`kernel::ioctl`].
     ///
     /// [`kernel::ioctl`]: mod@crate::ioctl
+    #[optional]
     fn ioctl(
         _device: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _file: &File,
         _cmd: u32,
         _arg: usize,
-    ) -> Result<isize> {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+    ) -> Result<isize>;
 
     /// Handler for ioctls.
     ///
@@ -173,23 +178,21 @@ pub trait MiscDevice: Sized {
     /// that have different layout on 32-bit and 64-bit userspace. If no implementation is
     /// provided, then `compat_ptr_ioctl` will be used instead.
     #[cfg(CONFIG_COMPAT)]
+    #[optional]
     fn compat_ioctl(
         _device: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _file: &File,
         _cmd: u32,
         _arg: usize,
-    ) -> Result<isize> {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+    ) -> Result<isize>;
 
     /// Show info for this fd.
+    #[optional]
     fn show_fdinfo(
         _device: <Self::Ptr as ForeignOwnable>::Borrowed<'_>,
         _m: &SeqFile,
         _file: &File,
-    ) {
-        build_error!(VTABLE_DEFAULT_ERROR)
-    }
+    );
 }
 
 /// A vtable for the file operations of a Rust miscdevice.
@@ -278,7 +281,7 @@ impl<T: MiscDevice> MiscdeviceVTable<T> {
     /// # Safety
     ///
     /// `kiocb` must be correspond to a valid file that is associated with a
-    /// `MiscDeviceRegistration<T>`. `iter` must be a valid `struct iov_iter` for writing.
+    /// `MiscDeviceRegistration<T>`. `iter` must be a valid `struct iov_iter` for reading.
     unsafe extern "C" fn write_iter(
         kiocb: *mut bindings::kiocb,
         iter: *mut bindings::iov_iter,
@@ -419,6 +422,7 @@ impl<T: MiscDevice> MiscdeviceVTable<T> {
         } else {
             None
         },
+        owner: this_module::<T::OwnerModule>().as_ptr(),
         ..pin_init::zeroed()
     };
 

@@ -59,11 +59,6 @@ static const struct super_operations mbt_sops = {
 	.free_inode	= mbt_free_inode,
 };
 
-static void mbt_kill_sb(struct super_block *sb)
-{
-	generic_shutdown_super(sb);
-}
-
 static int mbt_init_fs_context(struct fs_context *fc)
 {
 	return 0;
@@ -72,7 +67,7 @@ static int mbt_init_fs_context(struct fs_context *fc)
 static struct file_system_type mbt_fs_type = {
 	.name			= "mballoc test",
 	.init_fs_context	= mbt_init_fs_context,
-	.kill_sb		= mbt_kill_sb,
+	.kill_sb		= kill_anon_super,
 };
 
 static int mbt_mb_init(struct super_block *sb)
@@ -136,7 +131,7 @@ static void mbt_mb_release(struct super_block *sb)
 
 static int mbt_set(struct super_block *sb, struct fs_context *fc)
 {
-	return 0;
+	return set_anon_super_fc(sb, fc);
 }
 
 static struct super_block *mbt_ext4_alloc_super_block(void)
@@ -727,8 +722,7 @@ do_test_generate_buddy(struct kunit *test, struct super_block *sb, void *bitmap,
 	ext4_mb_generate_buddy_test(sb, ext4_buddy, bitmap, TEST_GOAL_GROUP,
 			       ext4_grp);
 
-	KUNIT_ASSERT_EQ(test, memcmp(mbt_buddy, ext4_buddy, sb->s_blocksize),
-			0);
+	KUNIT_ASSERT_MEMEQ(test, mbt_buddy, ext4_buddy, sb->s_blocksize);
 	mbt_validate_group_info(test, mbt_grp, ext4_grp);
 }
 
@@ -789,8 +783,7 @@ test_mb_mark_used_range(struct kunit *test, struct ext4_buddy *e4b,
 		grp->bb_counters[i] = 0;
 	ext4_mb_generate_buddy_test(sb, buddy, bitmap, 0, grp);
 
-	KUNIT_ASSERT_EQ(test, memcmp(buddy, e4b->bd_buddy, sb->s_blocksize),
-			0);
+	KUNIT_ASSERT_MEMEQ(test, buddy, e4b->bd_buddy, sb->s_blocksize);
 	mbt_validate_group_info(test, grp, e4b->bd_info);
 }
 
@@ -854,8 +847,7 @@ test_mb_free_blocks_range(struct kunit *test, struct ext4_buddy *e4b,
 		grp->bb_counters[i] = 0;
 	ext4_mb_generate_buddy_test(sb, buddy, bitmap, 0, grp);
 
-	KUNIT_ASSERT_EQ(test, memcmp(buddy, e4b->bd_buddy, sb->s_blocksize),
-			0);
+	KUNIT_ASSERT_MEMEQ(test, buddy, e4b->bd_buddy, sb->s_blocksize);
 	mbt_validate_group_info(test, grp, e4b->bd_info);
 
 }

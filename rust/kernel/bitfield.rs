@@ -295,7 +295,6 @@ macro_rules! bitfield {
         $(#[$attr:meta])* $vis:vis struct $name:ident($storage:ty) { $($fields:tt)* }
     ) => {
         $crate::bitfield!(@core
-            #[allow(non_camel_case_types)]
             $(#[$attr])* $vis $name $storage
         );
         $crate::bitfield!(@fields $vis $name $storage { $($fields)* });
@@ -535,6 +534,7 @@ macro_rules! bitfield {
     // `Debug` implementation.
     (@debug $name:ident { $($field:ident;)* }) => {
         impl ::kernel::fmt::Debug for $name {
+            #[inline]
             fn fmt(&self, f: &mut ::kernel::fmt::Formatter<'_>) -> ::kernel::fmt::Result {
                 f.debug_struct(stringify!($name))
                     .field("<raw>", &::kernel::prelude::fmt!("{:#x}", self.inner))
@@ -580,6 +580,7 @@ mod tests {
     }
 
     impl From<MemoryType> for Bounded<u64, 4> {
+        #[inline(always)]
         fn from(mt: MemoryType) -> Bounded<u64, 4> {
             Bounded::from_expr(mt as u64)
         }
@@ -605,6 +606,7 @@ mod tests {
     }
 
     impl From<Priority> for Bounded<u16, 2> {
+        #[inline(always)]
         fn from(p: Priority) -> Bounded<u16, 2> {
             Bounded::from_expr(p as u16)
         }

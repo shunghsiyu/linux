@@ -890,7 +890,7 @@ static inline void detach_timer(struct timer_list *timer, bool clear_pending)
 
 	__hlist_del(entry);
 	if (clear_pending)
-		entry->pprev = NULL;
+		WRITE_ONCE(entry->pprev, NULL);
 	entry->next = LIST_POISON2;
 }
 
@@ -2492,6 +2492,7 @@ static void migrate_timer_list(struct timer_base *new_base, struct hlist_head *h
 		timer = hlist_entry(head->first, struct timer_list, entry);
 		detach_timer(timer, false);
 		timer->flags = (timer->flags & ~TIMER_BASEMASK) | cpu;
+		debug_timer_activate(timer);
 		internal_add_timer(new_base, timer);
 	}
 }
